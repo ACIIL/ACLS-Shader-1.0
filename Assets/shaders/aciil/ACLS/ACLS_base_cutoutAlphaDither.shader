@@ -1,7 +1,7 @@
 ﻿//// ACiiL
 //// Citations in readme and in source.
 //// https://github.com/ACIIL/ACLS-Shader
-Shader "ACiiL/toon/ACLS_Toon_AlphaTransparent_Dither" {
+Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
         Properties {
         [Enum(OFF,0,FRONT,1,BACK,2)] _CullMode("Cull Mode", int)    = 2  //OFF/FRONT/BACK
 
@@ -127,7 +127,8 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaTransparent_Dither" {
         [Toggle(_)] _Inverse_Clipping("Inverse clipping",Int)                       = 0
         _Clipping_Level("Clipping level",Range(0, 1))                               = 0 
         _Tweak_transparency("--Tweak transparency",Range(-1, 1))                    = 0
-        [Enum(alpha,0,reflect,1)] _UseSpecAlpha("Specular Alpha opacity",Int)       = 0
+        [Space(18)]
+        // [Enum(alpha,0,reflect,1)] _UseSpecAlpha("Specular Alpha opacity",Int)       = 0
         [Toggle(_)] _DetachShadowClipping("Separate Shadow Clipping Level",Int)     = 0
         _Clipping_Level_Shadow("--Shadow Clip",Range(0, 1))                         = 1
 

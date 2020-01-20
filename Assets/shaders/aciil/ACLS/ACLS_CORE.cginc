@@ -981,7 +981,7 @@
                                                 _Is_BlendAddToHiColor, colDiffuseTerms, specularSrcCol, oneMinusReflectivity); /// oneMinusReflectivity unused
 
                 //// emission blending in premultiply format
-#ifndef NotAlpha
+#if !defined(NotAlpha) && !defined(UseAlphaDither) //// cutout mode. dont use premultiplay block
                 UNITY_BRANCH
                 if (_UseSpecAlpha)
                 {
