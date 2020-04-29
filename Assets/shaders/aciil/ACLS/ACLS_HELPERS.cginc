@@ -94,14 +94,6 @@
         float3 DecodeLightProbe( float4 N ){
             return ShadeSH9(N);
         }
-        
-        //// ambient color
-        float3 DecodeLightProbe_average(){
-            return float3(unity_SHAr.w, unity_SHAg.w, unity_SHAb.w);
-            // unity v2017.4.15f1. May break in other versions.
-            //return (1 - softGI) * ShadeSH9( float4(N, 1)) + (softGI) * ShadeSH9( float4(0,0,0,1));
-            // return ShadeSH9( float4(0,0,0,1));
-        }
 
         //// Fancy shadeSH9 ringing correction 
         //// Method appears to be from:
@@ -136,6 +128,14 @@
             float a = (1.0f - lenR1 / R0) / (1.0f + lenR1 / R0);
 
             return R0 * (a + (1.0f - a) * (p + 1.0f) * pow(q, p));
+        }
+        
+        //// ambient color
+        float3 DecodeLightProbe_average(){
+            return float3(unity_SHAr.w, unity_SHAg.w, unity_SHAb.w);
+            // unity v2017.4.15f1. May break in other versions.
+            //return (1 - softGI) * ShadeSH9( float4(N, 1)) + (softGI) * ShadeSH9( float4(0,0,0,1));
+            // return ShadeSH9( float4(0,0,0,1));
         }
 
         //// (Unity)
@@ -173,6 +173,14 @@
             L0.b = dot(unity_SHAb,normal);
             return L0;
         }
+
+        //// GI L0 + L2 terms integrated to an average.
+        //// lox9973
+        float3 DecodeLightProbeAllAverage()
+        {
+            return float3(unity_SHAr.w + unity_SHBr.z/3, unity_SHAg.w + unity_SHBg.z/3, unity_SHAb.w + unity_SHBb.z/3);
+        }
+
         // normal should be normalized, w=1.0
         // output in active color space
         half3 ShadeSH9_ac (half4 normal)
@@ -241,6 +249,40 @@
             return  x + x1;
         }
 
+        // mix colors compromising saturation peaks and intensity
+        float3 mixColorsMaxAve(float3 a, float3 b)
+        {
+            // return min((a + b)*.5, max(a, b));
+            float3 ave  = (a+b)*.5;
+            return (max(a, b)+ave)*.5;
+        }
+
+        //// https://www.shadertoy.com/view/ldtXDj
+        //// camera HDR off means self curving color is safe, as Standard's emission cheats by curving intensity
+        //// suggestion from lox9973
+        float3 ACESFilm( float3 x )
+        {
+            float a = 2.51;
+            float b = 0.03;
+            float c = 2.43;
+            float d = 0.59;
+            float e = 0.14;
+            return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+        }
+        //// alternative tonemap
+        //// https://www.slideshare.net/ozlael/hable-john-uncharted2-hdr-lighting
+        float3 Uncharted2Tonemap(float3 x)
+        {
+            float A = 0.15; // shoulder strength
+            float B = 0.50; // linera strength
+            float C = 0.10; // linear angle
+            float D = 0.20; // toe strength
+            float E = 0.02; // toe numerator
+            float F = 0.30; // toe denominator
+            float W = 11.2; // E/F = toe angle
+            return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+        }
+
         // (Unity) Convert rgb to luminance
         // with rgb in linear space with sRGB primaries and D65 white point
         half LinearRgbToLuminance_ac(half3 linearRgb)
@@ -248,14 +290,14 @@
             return dot(linearRgb, half3(0.2126729f,  0.7151522f, 0.0721750f));
         }
 
-        // unity's modified version without the lambert tint darkening and with attenuation pass out.
+        // unity's modified version without the lambert tint darkening and hard distance clip.
+        // vertTo0 - first VL position
         float3 softShade4PointLights_Atten (
             float4 lightPosX, float4 lightPosY, float4 lightPosZ,
-            float3 lightColor0, float3 lightColor1, float3 lightColor2, float3 lightColor3,
-            float4 lightAttenSq,
+            half4 unityLightColor[8],
+            half4 unity4LightAtten0,
             float3 pos,
             float3 normal,
-            out float attenVert,
             out float3 vertTo0)
         {
             // to light vectors
@@ -276,17 +318,18 @@
             lengthSq += toLightZ * toLightZ;
             // don't produce NaNs if some vertex position overlaps with the light
             lengthSq = max(lengthSq, 0.000001);
-
             // attenuation
-            float4 atten = saturate(1.0 / (1.0 + lengthSq * lightAttenSq) - 0.034);
-            attenVert = atten;
-            // float4 diff = atten;
+            float4 disLimit = (lengthSq * unity4LightAtten0);
+            disLimit        = ((disLimit) > 30) ? 1.#INF : disLimit;
+            float4 atten    = (1.0 / (1.0 + disLimit));
+            // atten    = lerp(0, atten, saturate(unity4LightAtten0*lengthSq));
+            // float4 atten = saturate(1.0 / (1.0 + lengthSq * lightAttenSq) - 0.034);
 
             float3 col = 0;
-            col += lightColor0;
-            col += lightColor1;
-            col += lightColor2;
-            col += lightColor3;
+            col += unityLightColor[0] * atten[0];
+            col += unityLightColor[1] * atten[1];
+            col += unityLightColor[2] * atten[2];
+            col += unityLightColor[3] * atten[3];
             return col;
         }
 
@@ -433,12 +476,13 @@
             return (a*t + b)*t*t + n;
         }
 
-        //// (Unity)
-        half perceptualRoughnessToMipmapLevel_ac(half perceptualRoughness)
+        //// (Unity). Modifed as LOD max is not 6 as Unity assumed.
+        half perceptualRoughnessToMipmapLevel_ac(half perceptualRoughness,half lodMax)
         {
-            return perceptualRoughness * UNITY_SPECCUBE_LOD_STEPS;
+            return (perceptualRoughness * lodMax);
+            // return log2(perceptualRoughness * UNITY_SPECCUBE_LOD_STEPS);
         }
-
+        
         ////
         half ColStrength_ac(half3 specular) {
                 return max(max(specular.r, specular.g), specular.b);
@@ -534,10 +578,15 @@
             return  F0 + (m-F0) * t;    //// HDR spec color limit
         }
 
+        float PerceptualRoughnessToRoughness_ac(float perceptualRoughness)
+        {
+            return perceptualRoughness * perceptualRoughness;
+        }
+
         //// Unity
         inline half PerceptualRoughnessToSpecPower_ac (half perceptualRoughness)
         {
-            half m = PerceptualRoughnessToRoughness(perceptualRoughness);   // m is the true academic roughness.
+            half m = PerceptualRoughnessToRoughness_ac(perceptualRoughness);   // m is the true academic roughness.
             // half m = perceptualRoughness * perceptualRoughness;   // m is the true academic roughness.
             half sq = max(1e-4f, m*m);
             half n = (2.0 / sq) - 2.0;  // https://dl.dropboxusercontent.com/u/55891920/papers/mm_brdf.pdf
@@ -628,7 +677,7 @@
             return      UNITY_INV_PI * a2 / (d * d + 1e-7f);
         }
         //// Ref: http://jcgt.org/published/0003/02/03/paper.pdf
-        inline float SmithJointGGXVisibilityTerm_ac (float NdotL, float NdotV, float roughness)
+        inline float SmithJointGGXVisibilityTerm_ac(float NdotL, float NdotV, float roughness)
         {
             // Approximation of the above formulation (simplify the sqrt, not mathematically correct but close enough)
             float a         = roughness;
@@ -636,6 +685,24 @@
             float lambdaL   = NdotV * (NdotL * (1 - a) + a);
             return          0.5f / (lambdaV + lambdaL + 1e-5f);
         }
+
+        //// Generic Smith-Schlick visibility term
+        inline half SmithVisibilityTerm_ac (half NdotL, half NdotV, half k)
+        {
+            half gL = NdotL * (1-k) + k;
+            half gV = NdotV * (1-k) + k;
+            return 1.0 / (gL * gV + 1e-5f); // This function is not intended to be running on Mobile,
+                                            // therefore epsilon is smaller than can be represented by half
+        }
+
+        ////
+        inline half SmithBeckmannVisibilityTerm_ac(half NdotL, half NdotV, half roughness)
+        {
+            half c = 0.797884560802865h; // c = sqrt(2 / Pi)
+            half k = roughness * c;
+            return SmithVisibilityTerm_ac (NdotL, NdotV, k) * 0.25f; // * 0.25 is the 1/4 of the visibility term
+        }
+
         //// wip GSF for diffuse
         float GSF_Diff_ac (float NdotL, float NdotV, float LdotH)
         {

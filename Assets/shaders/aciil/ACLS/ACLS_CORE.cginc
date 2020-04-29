@@ -81,7 +81,7 @@
             uniform half _1st2nd_Shades_Feather;
 
             uniform half _shadowCastMin_black;
-            uniform int _Set_SystemShadowsToBase;
+            uniform half _Set_SystemShadowsToBase;
             uniform half _Is_UseTweakHighColorOnShadow;
             uniform half _Tweak_SystemShadowsLevel;
             uniform half _shaSatRatio;
@@ -142,12 +142,18 @@
             uniform int _CubemapFallbackMode;
             uniform float _EnvGrazeMix;
             uniform int _EnvGrazeRimMix;
-            uniform float _AmbientColorDesat;
             // uniform float _AO_shadePosFront_Offset;
             // uniform float _AO_shadePosBack_Offset;
             // uniform float _Occlusion_Spec;
             // uniform float _Occlusion_Rim;
             // uniform float _Occlusion_MatAdd;
+            uniform int _ToonRampLightSourceType_Backwards;
+            uniform int _UseSpecularSystem;
+            uniform float3 _backFaceColorTint;
+            uniform float4 _SpecularMaskHSV;
+            uniform int _forceLightClamp;
+            uniform float _rimAlbedoMix;
+            uniform float _directLightIntensity;
 
 
 
@@ -172,7 +178,6 @@
                 float4 tangent  : TEXCOORD3;
                 float3 bitTangent   : TEXCOORD4;
                 float3 vertexLighting    : TEXCOORD5;
-                float attenVert     : TEXCOORD6;
                 float3 dirGI        : TEXCOORD7;
                 float2 uv           : TEXCOORD8;
                 float4 screenPos    : TEXCOORD9;
@@ -205,8 +210,9 @@
 #ifdef VERTEXLIGHT_ON
                 o.vertexLighting    = softShade4PointLights_Atten(
                     unity_4LightPosX0, unity_4LightPosY0, unity_4LightPosZ0
-                    , unity_LightColor[0], unity_LightColor[1], unity_LightColor[2], unity_LightColor[3]
-                    , unity_4LightAtten0, o.worldPos, o.wNormal, o.attenVert, o.vertTo0);
+                    , unity_LightColor
+                    , unity_4LightAtten0,
+                    o.worldPos, o.wNormal, o.vertTo0);
 #endif                    
 #ifdef UNITY_PASS_FORWARDBASE
                 o.dirGI       = GIDominantDir();
@@ -233,8 +239,8 @@
                 #endif
 
                 #ifdef DIRECTIONAL
-                #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) fixed destName = 1;
-                // #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) fixed destName = UNITY_SHADOW_ATTENUATION(input, worldPos);
+                // #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) fixed destName = 1;
+                #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) fixed destName = UNITY_SHADOW_ATTENUATION(input, worldPos);
                 #endif
 
                 #ifdef POINT_COOKIE
@@ -259,9 +265,9 @@
                 VertexOutput i
                 , bool frontFace : SV_IsFrontFace ) : SV_TARGET 
             {
-                float faceDetect        = !frontFace;
+                int isBackFace          = !frontFace;
                 i.wNormal               = normalize( i.wNormal);
-                if(faceDetect) { //// flip normal for back faces.
+                if(isBackFace) { //// flip normal for back faces.
                     i.wNormal = -i.wNormal;
                 }
                 i.tangent               = normalize(i.tangent);
@@ -349,18 +355,19 @@
 
 //// toon shade manual textures
                 UNITY_BRANCH
-                float4 shadeMapTex_1    = (_Use_BaseAs1st) ? (mainTex) : (_1st_ShadeMap.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy));
+                float4 shadeMapTex_1 = (_Use_BaseAs1st) ? (mainTex) : (_1st_ShadeMap.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy));
+                float4 shadeMapTex_2 = 0;
                 UNITY_BRANCH
-                float4 shadeMapTex_2    = (_Use_1stAs2nd) ? (shadeMapTex_1) : (_2nd_ShadeMap.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy));
-
-//// Light attenuation
-                UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
-                float shadowAtten       = UNITY_SHADOW_ATTENUATION(i, i.worldPos.xyz);
-                shadowAtten             = max(shadowAtten, i.attenVert);
-                float nLightAtten       = 1 - lightAtten;
-                float nShadowAtten      = 1 - shadowAtten;
-                float shadowAttenB      = ( (-(nShadowAtten * nShadowAtten) + 1));
-                float attenRamp         = lightAtten;
+                if (_Use_1stAs2nd > 1)
+                {
+                    shadeMapTex_2 = mainTex;
+                } else if (_Use_1stAs2nd > 0)
+                {
+                    shadeMapTex_2 = shadeMapTex_1;
+                } else
+                {
+                    shadeMapTex_2 = (_2nd_ShadeMap.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy));
+                }
 
 
 
@@ -373,86 +380,24 @@
 
 
 
-//// Light input colors
-                //// sample the scene lighting. Direct and indirect. Build up meta data for later tricks.
-                float shadRings         = shadowAttenB;
-                float shadowBlackness;
-                UNITY_BRANCH
-                if (_shadowCastMin_black)//// effect on
-                {
-                    float dynamicShadowMask;
-                    UNITY_BRANCH
-                    if (!(_DynamicShadowMask_TexelSize.z <16)) {
-                        dynamicShadowMask   = _DynamicShadowMask.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
-                    }
-                    else {
-                        dynamicShadowMask   = 1;
-                    }
-                    float tmp       = dynamicShadowMask * _shadowCastMin_black;
-                    shadowBlackness = saturate( (shadRings + tmp)/(1 - tmp));
-                }
-                else {
-                    shadowBlackness = shadRings;
-                }
-#ifdef UNITY_PASS_FORWARDBASE
-                float3 lightIndirectColAve  = DecodeLightProbe_average();
-                float3 lightIndirectMaxCol  = ShadeSH9_ac(float4(i.dirGI,1));
-                float3 lightIndirectAngCol  = shadeSH9LinearAndWhole(float4(i.wNormal,1));
-                float3 lightIndirectCol     = lerp(lightIndirectMaxCol, lightIndirectColAve, saturate(length(lightIndirectMaxCol) / (length(lightIndirectColAve) + 0.00001)));
-                float3 lightDirect          = _LightColor0.rgb;
-                float colSceneLum           = LinearRgbToLuminance_ac((lightDirect * _LightShadowData.x) + lightDirect + (lightIndirectCol)) * .34;
-                float shaBlackMix       = shadowBlackness * attenRamp;
-                lightDirect             = lightDirect * shaBlackMix;
-                //// fuzzy logic for classifying direct light < indirect light
-                // float lightDirGray      = dot(_LightColor0.rgb, 1);
-                // float lightInDirGray    = dot(lightIndirectColAve.rgb, 1);
-                // float colorIntSignal    = (smoothstep(0, lightDirGray, lightInDirGray));
-                float3 vertexLit        = i.vertexLighting * i.attenVert;
-                float3 lightColorFinal  = lightIndirectCol + vertexLit + lightDirect;
-#elif UNITY_PASS_FORWARDADD
-                float3 lightIndirectColAve  = 0;
-                float3 lightIndirectAngCol  = 0;
-                float3 lightDirect      = _LightColor0.rgb;
-                float shadBlackScale    = lerp(1, shadowBlackness, attenRamp);
-                shadowBlackness         = shadBlackScale;
-                float shaBlackMix       = shadowBlackness * attenRamp;
-                lightDirect             = lightDirect * shaBlackMix;
-                float colSceneLum       = LinearRgbToLuminance_ac((lightDirect * _LightShadowData.x) + lightDirect) * .5;
-                float3 lightColorFinal  = lightDirect;
-                // float colorIntSignal    = 0;
-#endif
-
-
-
-                //// shadow influance for masking some effects.
-                float shadowMask, shadowMaskSharp;
-                shadowMaskSharp = smoothstep(min(_LightShadowData.x, 1), min(1,_LightShadowData.x+0.1), shadowAtten*(shadowAtten+0.001));
-                shadowMask      = max(_LightShadowData.x, shadowMaskSharp);
-                // shadowMask  = max(_LightShadowData.x, smoothstep(min(_LightShadowData.x, 1), min(1,_LightShadowData.x+0.1), shadowAtten*(shadowAtten+0.001)));
-
-                float3 set_LightColor   = lightColorFinal;
-
-
-
-
-
-
 //// main light direction with weighted factors of light types
 #ifdef UNITY_PASS_FORWARDBASE
                 float3 viewLightDirection   = normalize( UNITY_MATRIX_V[2].xyz + UNITY_MATRIX_V[1].xyz); // [1] = camera y upward, [2] = camera z forward
                 //// experiment for weighted angles.
                 // dirLight                    = dot(1, lightDirect) * _WorldSpaceLightPos0.xyz + dot(1, lightIndirectColAve) * (i.dirGI)  + dot(1, vertexLit) * (i.vertTo0) + (.0001 * viewLightDirection);
-                dirLight                    = 100*(_WorldSpaceLightPos0.xyz) + (i.dirGI) + 0.001*(i.vertTo0) + .001*(viewLightDirection);
+                dirLight                    = 100*(_WorldSpaceLightPos0.xyz) + (i.dirGI) + 0.001*(i.vertTo0) + .0001*(viewLightDirection);
                 dirLight                    = normalize(dirLight);
                 // return float4(((.5*dot(dirLight, i.wNormal)+.5)).xxx, 1);
 #elif UNITY_PASS_FORWARDADD
 #endif
-                if (faceDetect) //// treat backfaces towards light
+                if (isBackFace) //// treat backfaces towards light
                 {
                     dirLight    = -dirLight;
                 }
 
-//// dot() set. A wierd way to organize extensive input values per effect, per normal map
+
+
+//// dot() set. Organized extensive input values per effect, per normal map
                 ////
                 float3 dirNormalToonRamp        = _Is_NormalMapToBase       ? dirNormal : i.wNormal;
                 float3 dirNormalSpecular        = _Is_NormalMapToHighColor  ? dirNormal : i.wNormal;
@@ -502,7 +447,157 @@
 
 
 
-//// Matcap
+//// Light attenuation (falloff and shadows), used for mixing in shadows and effects that react to shadow
+            #ifdef DIRECTIONAL 
+                //// directional lights handle UNITY_LIGHT_ATTENUATION() differently. I want to split attenuation and shadows, but both concepts fuse in directional lights
+                UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
+                float shadowFullTrue = lightAtten;
+                lightAtten = smoothstep(0, 0.6, lightAtten);
+                float shadowAtten = lightAtten;
+            #else
+                UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
+                float shadowAtten = UNITY_SHADOW_ATTENUATION(i, i.worldPos.xyz);
+                float shadowFullTrue = shadowAtten;
+                shadowAtten = smoothstep(0, 0.6, shadowAtten);
+            #endif
+                //// regraph shadow fridge
+                // float nShadowAtten  = 1 - shadowAtten;
+                // shadowAtten         = ( (-(nShadowAtten * nShadowAtten) + 1));
+                float attenRamp = shadowAtten;
+                //// shadow influance for masking some effects.
+                float shadowMask, shadowMaskSharp;
+                shadowMaskSharp = smoothstep(min(_LightShadowData.x, 1), min(1,_LightShadowData.x+0.1), attenRamp);
+                // shadowMaskSharp = smoothstep(min(_LightShadowData.x, 1), min(1,_LightShadowData.x+0.1), shadowAtten*(shadowAtten+0.001));
+                shadowMask  = max(_LightShadowData.x, shadowMaskSharp);
+
+
+
+//// toon ramp, prepare ramp masks
+                //// toon ramp AO masks. These down ramp as to "force shadow".
+                float shadowTex_1  = 1;
+                float shadowTex_2  = 1;
+                shadowTex_1 = _Set_1st_ShadePosition.SampleGrad(sampler_Set_1st_ShadePosition_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
+                shadowTex_2 = _Set_2nd_ShadePosition.SampleGrad(sampler_Set_1st_ShadePosition_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
+                //// light mask setup. N dol L modified by ****. 50% gray mean natural influence.
+                float pivotOffset_1 = 0;
+                float pivotOffset_2 = 0;
+                float4 lightMask    = 0.5;
+                UV_DD uv_lightMap   = UVDD( TRANSFORM_TEX( i.uv, _LightMap));
+                UNITY_BRANCH
+                if (_UseLightMap)
+                {
+                    lightMask   = _LightMap.SampleGrad( sampler_MainTex_trilinear_repeat, uv_lightMap.uv, uv_lightMap.dx, uv_lightMap.dy);
+                    lightMask.g = ( RemapRange01(lightMask.g, _lightMap_remapArr[2], _lightMap_remapArr[3]));
+                    //// enum mode 2. Use vertex color red
+                    UNITY_BRANCH
+                    if (_UseLightMap > 1) { //// use vertex color 
+                        lightMask.g *= i.color.r;
+                    }
+                    //// bright side mix
+                    float toonOffsetMask_1  = lightMask.g;
+                    float2 AOmCalibrate_1   = (toonOffsetMask_1.xx * float2(_toonLambAry_01[0],_toonLambAry_01[0]) + float2(_toonLambAry_01[1],_toonLambAry_01[1]));
+                    float AOmaskPivot_1     = ((0.5) > toonOffsetMask_1);
+                    pivotOffset_1           = (AOmaskPivot_1) ? AOmCalibrate_1.y : AOmCalibrate_1.x;
+                    //// dark side mix
+                    float toonOffsetMask_2  = lightMask.g;
+                    float2 AOmCalibrate_2   = (toonOffsetMask_2.xx * float2(_toonLambAry_02[0],_toonLambAry_02[0]) + float2(_toonLambAry_02[1],_toonLambAry_02[1]));
+                    float AOmaskPivot_2     = ((0.5) > toonOffsetMask_2);
+                    pivotOffset_2     = (AOmaskPivot_2) ? AOmCalibrate_2.y : AOmCalibrate_2.x;
+                }
+                //// Assist for shadow mask
+                float shadeRamp_n0  = dDiff.ndl;
+                //// ndl light side
+                float shadeRamp_n1  = shadeRamp_n0;
+                // UNITY_BRANCH
+                // if (_Set_SystemShadowsToBase)
+                // {
+                //     // Because ACiiL is an insane unity shadow caster wizard who still dislikes rewriting CGincludes.
+                //     float n1ShadowMask  = shadowMask;
+                //     shadeRamp_n1    = (shadeRamp_n1 * n1ShadowMask);
+                // }
+                UNITY_BRANCH
+                if (_UseLightMap)
+                {
+                    shadeRamp_n1    = (pivotOffset_1 + shadeRamp_n1) * 0.5;
+                } 
+                else {
+                    shadeRamp_n1    = (shadeRamp_n1);
+                }
+                shadeRamp_n1    = (shadeRamp_n1 - _BaseColor_Step + _BaseShade_Feather);
+                shadeRamp_n1    = 1 + shadeRamp_n1 * -shadowTex_1 / (_BaseShade_Feather);
+                shadeRamp_n1    = saturate(shadeRamp_n1);
+                //// ndl dark side
+                float shadeRamp_n2  = shadeRamp_n0;
+                UNITY_BRANCH
+                if (_UseLightMap)
+                {
+                    shadeRamp_n2    = (pivotOffset_2 + shadeRamp_n2) * 0.5;
+                } 
+                else {
+                    shadeRamp_n2    = (shadeRamp_n2);
+                }
+                shadeRamp_n2        = (shadeRamp_n2 - _ShadeColor_Step + _1st2nd_Shades_Feather);
+                shadeRamp_n2        = 1 + shadeRamp_n2 * -shadowTex_2 / ( _1st2nd_Shades_Feather );
+                shadeRamp_n2        = saturate(shadeRamp_n2);
+                // return float4(shadeRamp_n2.xxx,1);
+//// end toon ramp mask setup
+
+
+
+//// setup shadow darkness control
+                //// setup dynamic shadow limits
+                float shadowAttenuation = shadowAtten;
+                float shadowBlackness = 0;
+                float shadowMinPotential = 0;
+                UNITY_BRANCH
+                if ( (_shadowCastMin_black) || !(_DynamicShadowMask_TexelSize.z <16)) 
+                {
+                    float dynamicShadowMask = _DynamicShadowMask.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
+                    float tmp       = max(_shadowCastMin_black, dynamicShadowMask);
+                    shadowBlackness = saturate( (shadowAttenuation + tmp)/(1 - tmp));
+                    shadowMinPotential  = saturate( (_LightShadowData.x + tmp)/(1 - tmp));
+                } else
+                {
+                    shadowBlackness = shadowAttenuation;
+                }
+                // return float4(shadowBlackness.xxx,1);
+
+
+
+//// collect scene light sources
+#ifdef UNITY_PASS_FORWARDBASE
+                float3 lightIndirectColAve  = DecodeLightProbe_average();   //// average light from raw L0
+                float3 lightIndirectMaxCol  = SHEvalDirectL1(float4(i.dirGI,1));    //// direct most light raw L1
+                float3 lightIndirectAngCol  = shadeSH9LinearAndWhole(float4(i.wNormal,1));  //// All GI from direction and fixed for no negatives
+                // float scaleGIL0L1           = saturate(LinearRgbToLuminance_ac(lightIndirectMaxCol) / (LinearRgbToLuminance_ac(lightIndirectColAve) + 0.00001) * .9);
+                float scaleGIL0L1           = saturate(LinearRgbToLuminance_ac(lightIndirectMaxCol) - (LinearRgbToLuminance_ac(lightIndirectColAve)).xxx + 0.00001) * 1;
+                float3 lightIndirectCol     = lerp(lightIndirectMaxCol, lightIndirectColAve, scaleGIL0L1);
+                //// build direct light sources
+                float3 lightDirect          = _LightColor0.rgb;
+                float3 lightDirectSave      = lightDirect;
+                //// build ambient LUM for reflection types
+                float lightAverageLum   = LinearRgbToLuminance_ac((lightDirectSave * _LightShadowData.x * .5) + lightDirectSave + (lightIndirectCol)) * .34;
+                float3 vertexLit        = i.vertexLighting;
+                //// out light source by types
+                float3 lightDirectSource    = (mixColorsMaxAve(lightIndirectMaxCol, lightDirect) + vertexLit) * _directLightIntensity;
+                float3 lightIndirectSource  = lightIndirectCol + vertexLit;
+#elif UNITY_PASS_FORWARDADD
+                float3 lightIndirectColAve  = 0;
+                float3 lightIndirectAngCol  = 0;
+                float3 lightDirect          = _LightColor0.rgb;
+                float3 lightDirectSave      = lightDirect;
+                lightDirect                 *= lightAtten;
+                float lightAverageLum       = lightAtten * LinearRgbToLuminance_ac((lightDirectSave * _LightShadowData.x * .5) + lightDirectSave) * .5;
+                // float colSceneAmbientLum    = LinearRgbToLuminance_ac(lightDirect);
+                // float colorIntSignal    = 0;
+                //// out light source by types
+                float3 lightDirectSource    = lightDirect * _directLightIntensity;
+                float3 lightIndirectSource  = 0;
+#endif
+
+
+
+//// matcap
                 float matcapMask    = 1;
                 float matcapShaMask = 1;
                 float3 mcMixAdd     = 0;
@@ -552,82 +647,9 @@
 
 
 
-//// Toon setup
-                //// toon ramp AO masks. These down ramp as to "force shadow".
-                float shadowTex_1  = 1;
-                float shadowTex_2  = 1;
-                shadowTex_1 = _Set_1st_ShadePosition.SampleGrad(sampler_Set_1st_ShadePosition_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
-                shadowTex_2 = _Set_2nd_ShadePosition.SampleGrad( sampler_Set_1st_ShadePosition_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
-                //// light mask setup. N dol L modified by ****. 50% gray mean natural influence.
-                float pivotOffset_1 = 0;
-                float pivotOffset_2 = 0;
-                float4 lightMask    = 0.5;
-                UV_DD uv_lightMap   = UVDD( TRANSFORM_TEX( i.uv, _LightMap));
-                UNITY_BRANCH
-                if (_UseLightMap)
-                {
-                    lightMask   = _LightMap.SampleGrad( sampler_MainTex_trilinear_repeat, uv_lightMap.uv, uv_lightMap.dx, uv_lightMap.dy);
-                    lightMask.g = ( RemapRange01(lightMask.g, _lightMap_remapArr[2], _lightMap_remapArr[3]));
-                    //// enum mode 2. Use vertex color red
-                    UNITY_BRANCH
-                    if (_UseLightMap > 1) { //// use vertex color 
-                        lightMask.g *= i.color.r;
-                    }
-                    //// bright side mix
-                    float toonOffsetMask_1  = lightMask.g;
-                    float2 AOmCalibrate_1   = (toonOffsetMask_1.xx * float2(_toonLambAry_01[0],_toonLambAry_01[0]) + float2(_toonLambAry_01[1],_toonLambAry_01[1]));
-                    float AOmaskPivot_1     = ((0.5) > toonOffsetMask_1);
-                    pivotOffset_1           = (AOmaskPivot_1) ? AOmCalibrate_1.y : AOmCalibrate_1.x;
-                    //// dark side mix
-                    float toonOffsetMask_2  = lightMask.g;
-                    float2 AOmCalibrate_2   = (toonOffsetMask_2.xx * float2(_toonLambAry_02[0],_toonLambAry_02[0]) + float2(_toonLambAry_02[1],_toonLambAry_02[1]));
-                    float AOmaskPivot_2     = ((0.5) > toonOffsetMask_2);
-                    pivotOffset_2     = (AOmaskPivot_2) ? AOmCalibrate_2.y : AOmCalibrate_2.x;
-                }
 
 
-
-
-                //// ndl dark side
-                float shadeRamp_n0  = dDiff.ndl;
-                float shadeRamp_n2  = shadeRamp_n0;
-                UNITY_BRANCH
-                if (_UseLightMap)
-                {
-                    shadeRamp_n2    = (pivotOffset_2 + shadeRamp_n2) * 0.5;
-                } 
-                else {
-                    shadeRamp_n2    = (shadeRamp_n2);
-                }
-                shadeRamp_n2        = (shadeRamp_n2 - _ShadeColor_Step + _1st2nd_Shades_Feather);
-                shadeRamp_n2        = 1 + shadeRamp_n2 * -shadowTex_2 / ( _1st2nd_Shades_Feather );
-                shadeRamp_n2        = saturate(shadeRamp_n2);
- 
-
-
-                //// ndl light side
-                float shadeRamp_n1  = shadeRamp_n0;
-                UNITY_BRANCH
-                if (_Set_SystemShadowsToBase)
-                {
-                    // Because ACiiL is an insane unity shadow caster wizard who still dislikes rewriting CGincludes.
-                    float n1ShadowMask  = shadowMask;
-                    shadeRamp_n1    = (shadeRamp_n1 * n1ShadowMask);
-                }
-                UNITY_BRANCH
-                if (_UseLightMap)
-                {
-                    shadeRamp_n1    = (pivotOffset_1 + shadeRamp_n1) * 0.5;
-                } 
-                else {
-                    shadeRamp_n1    = (shadeRamp_n1);
-                }
-                shadeRamp_n1    = (shadeRamp_n1 - _BaseColor_Step + _BaseShade_Feather);
-                shadeRamp_n1    = 1 + shadeRamp_n1 * -shadowTex_1 / (_BaseShade_Feather);
-                shadeRamp_n1    = saturate(shadeRamp_n1);
-
-
-
+//// toon ramp color setup
                 //// Albedo variable remap zone of pain.
                 // get albedo samples
                 float3 albedoCol_1      = mainTex.rgb;
@@ -637,29 +659,32 @@
                 float3 shadeCol_1       = _0_ShadeColor.rgb     * _Color.rgb;
                 float3 shadeCol_2       = _1st_ShadeColor.rgb   * _Color.rgb;
                 float3 shadeCol_3       = _2nd_ShadeColor.rgb   * _Color.rgb;
-                // albedo & shades mix
-                float3 satIn_1          = albedoCol_1 * shadeCol_1;
-                float3 satIn_2          = albedoCol_2 * shadeCol_2;
-                float3 satIn_3          = albedoCol_3 * shadeCol_3;
-/*
-                ////////////////////////////////
-                //// HSV ramp logic for some day
-                float colTest           = 1 - ((saturate( ( (shadowBlackness) + (colorIntSignal)))));
-                float colSateOffset     = 1 + _shaSatRatio * colTest;
-                // color conversion
-                float3 albedoRGBIn      = satMix_1_23;
-                float3 albedoHSV        = RGBToHSV( albedoRGBIn);
-                satMix_1_23             = HSVToRGB( float3(albedoHSV.x, ( albedoHSV.y * colSateOffset ), albedoHSV.z));
-                // float3 shadeColor    = satMix_1_23 * satNoMix_1_23;
-                ////////////////////////////////
-                ////////////////////////////////
-*/
+
 //// Toon albedo and ramp mixer
                 float3 toonMix_bright_albedo    = lerp(albedoCol_1, albedoCol_2, shadeRamp_n1);
                 float3 toonMix_dark_albedo      = lerp(albedoCol_2, albedoCol_3, shadeRamp_n2);
+                //// mix scene colors per ramp region
+                //// how ambient light mixes affects both feedin of shadow attenuation and lighting selection
+                if (_ToonRampLightSourceType_Backwards > 0) //// diffuse lighting: backface ramp is part of shadow
+                {
+                    float n2ShadowMask = 1 - min((1-shadeRamp_n2), shadowBlackness);
+                    shadeRamp_n2 = n2ShadowMask;
+                    float3 lightDirectSim = (lightDirectSource * shadowBlackness) + lightIndirectSource;
+                    shadeCol_1 *= lightDirectSim;
+                    shadeCol_2 *= lightDirectSim;
+                    shadeCol_3 *= lightIndirectSource;
+                    // shadeCol_3 *= (lightDirectSource * max(shadowMinPotential, _LightShadowData.x)) + lightIndirectSource;
+                } else //// diffuse lighting: shadow is independent of ramp
+                {
+                    float3 lightDirectSim = (lightDirectSource * shadowBlackness) + lightIndirectSource;
+                    shadeCol_1 *= lightDirectSim;
+                    shadeCol_2 *= lightDirectSim;
+                    shadeCol_3 *= lightDirectSim;
+                }
                 float3 toonMix_bright_mix       = lerp(shadeCol_1, shadeCol_2, shadeRamp_n1);
                 float3 toonMix_dark_mix         = lerp(shadeCol_2, shadeCol_3, shadeRamp_n2);
                 
+                // return float4(shadeRamp_n1, shadeRamp_n2,0,1);
                 float diff_GSF  = 0;
                 UNITY_BRANCH
                 if (_Diff_GSF_01)
@@ -673,6 +698,7 @@
                 float3 shadeColor_albedo    = lerp(toonMix_bright_albedo, toonMix_dark_albedo, diff_GSF);//// textures
                 float3 shadeColor_mix       = lerp(toonMix_bright_mix, toonMix_dark_mix, diff_GSF);//// ramp
                 float3 shadeColor           = shadeColor_albedo * shadeColor_mix;//// mix ramp
+                // return float4(shadeColor,1);
 
 
 
@@ -685,12 +711,21 @@
                 float4 highColorTex         = _HighColor_Tex.SampleGrad( sampler_MainTex_trilinear_repeat, uv_specular.uv, uv_specular.dx, uv_specular.dy);
                 float3 specularSrcCol       = highColorTex.rgb;
                 float smoothness            = (highColorTex.a) * _Glossiness;
-                float perceptualRoughness   = SmoothnessToPerceptualRoughness(smoothness);
+                
                 //// blend spec textures and tint
-                specularSrcCol      = _SpecColor.rgb * specularSrcCol;
-                specularSrcCol      = lerp(specularSrcCol, specularSrcCol * shadeColor_albedo, _highColTexSource);
-
-                //// early oneMinusReflectivity for grazing term
+                specularSrcCol  *= _SpecColor.rgb;
+                if (_highColTexSource) // if mixing main texture
+                {
+                    specularSrcCol  = lerp(specularSrcCol, specularSrcCol * shadeColor_albedo, _highColTexSource);
+                    specularSrcCol  = RGBToHSV(saturate(specularSrcCol * _SpecularMaskHSV.w));
+                    specularSrcCol  = HSVToRGB(float3((specularSrcCol.x+_SpecularMaskHSV.x), saturate(specularSrcCol.y+_SpecularMaskHSV.y), max(0,specularSrcCol.z+_SpecularMaskHSV.z)));
+                }
+                float3 specularMatcapDes    = specularSrcCol;
+                if (!(_UseSpecularSystem)) //// forgive this lazy switch. Needs code block shutoff.
+                {
+                    specularSrcCol = _EnvGrazeMix = _EnvGrazeRimMix = 0;
+                } 
+                float perceptualRoughness   = SmoothnessToPerceptualRoughness(smoothness);
                 float oneMinusReflectivity  = 1;
                 EnergyConservationBetweenDiffuseAndSpecularOMF(specularSrcCol, /* out */ oneMinusReflectivity);
 
@@ -710,13 +745,13 @@
                     specMaskSetup_1             = 0;
                 }
                 else {
-                    float roughness         = PerceptualRoughnessToRoughness(perceptualRoughness);
+                    float roughness         = PerceptualRoughnessToRoughness_ac(perceptualRoughness);
                     roughness               = max(roughness, 0.002);
                     UNITY_BRANCH
                     if (_Is_SpecularToHighColor > 1) //// unity
                     {
-                        float spec_NDF      = GGXTerm_ac (dSpec.ndh, roughness);
-                        float spec_GSF      = SmithJointGGXVisibilityTerm_ac (dSpec.ndl, dSpec.ndv, roughness);
+                        float spec_NDF      = GGXTerm_ac(dSpec.ndh, roughness);
+                        float spec_GSF      = SmithJointGGXVisibilityTerm_ac(dSpec.ndl, dSpec.ndv, roughness);
                         specMaskSetup_1     = (spec_NDF * spec_GSF * UNITY_PI);
                         specMaskSetup_1     *= dSpec.ndl;
                         specMaskSetup_1     = max(0, specMaskSetup_1);
@@ -725,7 +760,7 @@
                     {
                         specMaskSetup_1     = pow(dSpec.ndh, RoughnessToSpecPower_ac(roughness)) * UNITY_PI;
                         // specMaskSetup_1     = NDFBlinnPhongNormalizedTerm(dSpec.ndh, PerceptualRoughnessToSpecPower_ac(perceptualRoughness));
-                        specMaskSetup_1     *= SmithBeckmannVisibilityTerm(dSpec.ndl, dSpec.ndv, roughness);
+                        specMaskSetup_1     *= SmithBeckmannVisibilityTerm_ac(dSpec.ndl, dSpec.ndv, roughness);
                         specMaskSetup_1     *= dSpec.ndl;
                         // return float4(specMaskSetup_1.xxx,1);
                     }
@@ -739,17 +774,7 @@
                     }
                     specMaskSetup_1         *= highColorInShadow;
                 }
-                // if (specMaskSetup_1 > 50)
-                // {
-                //     return float4(1,0,0,1);
-                // } else if (specMaskSetup_1 >2)
-                // {
-                //     return float4(0,1,0,1);
-                // } else if ( (specMaskSetup_1 >1))
-                // {
-                //     return float4(0,0,1,1);
-                // }
-                //// mix lobs
+                //// mix lobs, system intented to mix +1 spec's lobes
                 float3 highColorTotalCol_1  = specularSrcCol * _HighColor.rgb;
 
 
@@ -760,59 +785,70 @@
                 float envRimMask        = 0;
                 float colEnvMask        = 1;
                 float colGIGray         = 0;
+                float LODrange;
                 UNITY_BRANCH
                 if ((_ENVMmode) || (_envOnRim > 0))
                 {
-                    float3 reflDir0             = BoxProjection(dEnv.dirViewReflection, i.worldPos, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
-                    float envRoughness;
+                    float3 reflDir0 = BoxProjection(dEnv.dirViewReflection, i.worldPos, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
+                    float pRoughnessFix;
+                    float envLOD;
+                    half mip,testw,testw2,testh,lodMax;
+                    mip = testw = testw2 = testh = lodMax = 0;
+                    unity_SpecCube0.GetDimensions(mip,testw,testw,lodMax);
                     UNITY_BRANCH
                     if (_ENVMmode > 1) //// override
                     {
-                        float pRoughnessFix = 1 - _envRoughness;
-                        smoothness          = _envRoughness;
-                        pRoughnessFix       = pRoughnessFix * (1.7 - 0.7 * pRoughnessFix);
-                        envRoughness        = perceptualRoughnessToMipmapLevel_ac(pRoughnessFix);//// UnityImageBasedLighting.cginc
-                    } 
-                    else { //// standard
-                        float pRoughnessFix = perceptualRoughness * (1.7 - 0.7 * perceptualRoughness);
-                        envRoughness        = perceptualRoughnessToMipmapLevel_ac(pRoughnessFix);
+                        pRoughnessFix = 1 - _envRoughness;
+                        smoothness  = _envRoughness;
+                        pRoughnessFix   = pRoughnessFix * (1.7 - 0.7 * pRoughnessFix);
+                        envLOD  = perceptualRoughnessToMipmapLevel_ac(pRoughnessFix, lodMax);
+                    } else
+                    { //// standard
+                        pRoughnessFix = perceptualRoughness * (1.7 - 0.7 * perceptualRoughness);
+                        envLOD  = perceptualRoughnessToMipmapLevel_ac(pRoughnessFix, lodMax);
                     }
                     UNITY_BRANCH
                     if (_CubemapFallbackMode < 2) //// not override cubemap, solve real cubemaps
                     {
-                        float4 refColor0        = UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, reflDir0, envRoughness);
-                        refColor0.rgb           = DecodeHDR(refColor0, unity_SpecCube0_HDR);
-                        colEnv                  = refColor0.rgb;
+                        float4 refColor0    = UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, reflDir0, envLOD);
+                        refColor0.rgb   = DecodeHDR(refColor0, unity_SpecCube0_HDR);
+                        colEnv  = refColor0.rgb;
+                        UNITY_BRANCH
                         if (unity_SpecCube0_BoxMin.w < 0.9999)
                         {
-                            float3 reflDir1     = BoxProjection(dEnv.dirViewReflection, i.worldPos, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
-                            float4 refColor1    = UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(unity_SpecCube1, unity_SpecCube0, reflDir1, envRoughness);
-                            refColor1.rgb       = DecodeHDR(refColor1, unity_SpecCube1_HDR);
-                            colEnv              = lerp(refColor1.rgb, refColor0.rgb, unity_SpecCube0_BoxMin.w);
+                            unity_SpecCube1.GetDimensions(mip,testw2,testh,lodMax);
+                            envLOD  = perceptualRoughnessToMipmapLevel_ac(pRoughnessFix, lodMax);
+                            float3 reflDir1 = BoxProjection(dEnv.dirViewReflection, i.worldPos, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
+                            float4 refColor1    = UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(unity_SpecCube1, unity_SpecCube0, reflDir1, envLOD);
+                            refColor1.rgb   = DecodeHDR(refColor1, unity_SpecCube1_HDR);
+                            colEnv  = lerp(refColor1.rgb, refColor0.rgb, unity_SpecCube0_BoxMin.w);
                         }
                     }
                     UNITY_BRANCH
                     if (_CubemapFallbackMode) //// not off
                     {
-                        float testw=0; float testh=0;
-                        unity_SpecCube0.GetDimensions(testw,testh);
+                        // float testw=0; float testh=0;
+                        // unity_SpecCube0.GetDimensions(testw,testh);
                         UNITY_BRANCH
                         if ( (_CubemapFallbackMode > 1) || (testw < 16)) //// mode forced or smart. Conditionals cannot short-circit
                         {
-                            float4 colEnvBkup       = UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(_CubemapFallback, unity_SpecCube0, reflDir0, envRoughness);
-                            colEnvBkup.rgb          = DecodeHDR(colEnvBkup, _CubemapFallback_HDR);
-                            colEnv                  = colEnvBkup;
+                            _CubemapFallback.GetDimensions(mip,testw,testh,lodMax);
+                            envLOD  = perceptualRoughnessToMipmapLevel_ac(pRoughnessFix, lodMax);
+                            float4 colEnvBkup   = UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(_CubemapFallback, unity_SpecCube0, reflDir0, envLOD);
+                            colEnvBkup.rgb  = DecodeHDR(colEnvBkup, _CubemapFallback_HDR);
+                            colEnv  = colEnvBkup;
+                            colEnv  *= lightAverageLum;
                         }
                     }
                     //// natural grazing rim mask
                     if (_EnvGrazeMix)
                     {
-                        envRimMask              = Pow4_ac(1 - dEnv.ndv);
+                        envRimMask = Pow4_ac(1 - dEnv.ndv);
                     }
                     //// env on rim lights
-                    float colEnvGray        = LinearRgbToLuminance_ac(colEnv);
-                    envOntoRimSetup         = lerp(colEnvGray, colEnv, _envOnRimColorize); 
-                    envOntoRimSetup         = lerp(1, envOntoRimSetup, _envOnRim);
+                    float colEnvGray    = LinearRgbToLuminance_ac(colEnv);
+                    envOntoRimSetup = lerp(colEnvGray, colEnv, _envOnRimColorize); 
+                    envOntoRimSetup = lerp(1, envOntoRimSetup, _envOnRim);
 
                     //// gi light at a weird angle
                     float3 refGIcol = shadeSH9LinearAndWhole(float4(normalize(i.wNormal + dEnv.dirViewReflection),1));
@@ -860,27 +896,22 @@
                     rimLightMask                *= rimLightTexMask;
                     rimlightApMask              *= rimLightTexMask;
                     //// colors input
-                    float3 rimTexAlbedo;
-                    UNITY_BRANCH 
-                    switch( _RimLightSource)
+                    float3 rimTexAlbedo = 1;
+                    UNITY_BRANCH
+                    if (_rimAlbedoMix)
                     {
-                        case 0:
-                            rimTexAlbedo    = 1;
-                            break;
-                        case 1:
-                            rimTexAlbedo    = shadeColor_albedo;
-                            break;
-                        case 2:
-                            rimTexAlbedo    = specularSrcCol;
-                            break;
-                        default:
-                            rimTexAlbedo    = 1;
-                            break;
+                        UNITY_BRANCH
+                        if (_RimLightSource) 
+                        {
+                            rimTexAlbedo = specularSrcCol;
+                        } else
+                        {
+                            rimTexAlbedo = shadeColor_albedo;
+                        }
+                        rimTexAlbedo = lerp(1, rimTexAlbedo, _rimAlbedoMix);
                     }
-                    // rimLightCol                 = _RimLightColor.rgb * rimTexAlbedo;
-                    // rimLightApCol               = _Ap_RimLightColor.rgb * rimTexAlbedo;
-                    rimLightCol                 = _RimLightColor.rgb * rimTexAlbedo * envOntoRimSetup;
-                    rimLightApCol               = _Ap_RimLightColor.rgb * rimTexAlbedo * envOntoRimSetup;
+                    rimLightCol = _RimLightColor.rgb * rimTexAlbedo;
+                    rimLightApCol = _Ap_RimLightColor.rgb * rimTexAlbedo;
                 }
 
 
@@ -889,7 +920,7 @@
 #ifdef UNITY_PASS_FORWARDBASE
                 float4 emissiveMask     = _Emissive_Tex.Sample( sampler_EmissionColorTex_trilinear_repeat, TRANSFORM_TEX( i.uv, _Emissive_Tex));
                 float4 emissionTex      = _EmissionColorTex.Sample( sampler_EmissionColorTex_trilinear_repeat, TRANSFORM_TEX( i.uv, _EmissionColorTex));
-                float3 emissionColor    = max( (_EmissiveProportional_Color * colSceneLum), _Emissive_Color.rgb);
+                float3 emissionColor    = max( (_EmissiveProportional_Color * lightAverageLum), _Emissive_Color.rgb);
                 float3 emissionMixReal  = emissionTex.rgb * emissionColor * emissionTex.a;
                 float3 emissionMix      = emissionMixReal;
                 if (_MatCap){
@@ -913,9 +944,13 @@
 
 //// base diffuse
                 //// mcMixMult shadeColor_albedo shadeColor
-                colDiffuse          = shadeColor;
-                if (_MatCap){
-                    colDiffuse      = lerp(colDiffuse, (colDiffuse + (shadeColor_albedo * mcMixMult.rgb * _MatCapColMult.rgb * _MatCapColMult.a)), matcapMask);
+                colDiffuse      = shadeColor;
+                if (_MatCap){ //// gets scene lighting from toon ramp chain
+                    {
+                        float3 lightDirectSim = (shadowBlackness * lightDirectSource) + lightIndirectSource;
+                        // float3 lightDirectSim = (shadowBlackness * lightDirectSource) + lightIndirectSource;
+                        colDiffuse = lerp(colDiffuse, (colDiffuse + (lightDirectSim * mcMixMult.rgb * _MatCapColMult.rgb * _MatCapColMult.a)), matcapMask);
+                    }
                 }
 
 //// fernel
@@ -928,26 +963,32 @@
                 {
                     rimMixer    += rimLightApCol * rimlightApMask;
                 }
-                colFernel       = rimMixer;
+                colFernel   = rimMixer;
+                colFernel   *= (lightDirectSource * shadowBlackness) + lightIndirectSource; //// light is lazy combined
+                colFernel   *= envOntoRimSetup;
+                
                 
 //// specularity
-                colSpecular         = FresnelTerm_ac(highColorTotalCol_1, dSpec.ldh) * specMaskSetup_1 * aoSpecularM;
-                // return float4(specMaskSetup_1.xxx,1);
+                colSpecular = specMaskSetup_1 * aoSpecularM;
+                colSpecular *= FresnelTerm_ac(highColorTotalCol_1, dSpec.ldh);
+                colSpecular *= (lightDirectSource); //// specular shadow mask is in effect's stack
+                // colSpecular *= (lightDirectSource * shadowBlackness) + lightIndirectSource; //// specular shadow mask is in effect's stack
+                // return float4(colSpecular,1);
 
 
 
 //// reflection
-                float3 envColMixCore    = specularSrcCol * colSceneLum.xxx;
+                float3 envColMixCore    = specularSrcCol;
 #ifdef UNITY_PASS_FORWARDBASE
-                float envGrazeMask      = max( (envRimMask), ((_EnvGrazeRimMix) ? max(rimLightMask, rimlightApMask) : 0));
+                float envGrazeMask      = max( (envRimMask), ((_EnvGrazeRimMix) ? max(rimLightMask, rimlightApMask) : 0)); //// mix graze types
                 float surfaceReduction;
                 if (_ENVMmode > 1) //// override
                 { 
                     surfaceReduction    = _ENVMix;
                 }
                 else if (_ENVMmode > 0) { //// standard
-                    float roughness     = PerceptualRoughnessToRoughness(perceptualRoughness);
-                    surfaceReduction    = _ENVMix * 1.0 / (roughness * roughness + 1.0);
+                    float roughness     = PerceptualRoughnessToRoughness_ac(perceptualRoughness);
+                    surfaceReduction    = _ENVMix / (roughness * roughness + 1.0);
                 }
                 else { //// none
                     surfaceReduction    = 0;
@@ -956,26 +997,26 @@
                 if (_ENVMmode > 0) //// using env
                 {
                     float grazingTerm       = saturate(smoothness + (1 - oneMinusReflectivity));
-                    float envColMixGraze    = grazingTerm * (colSceneLum + colGIGray);
-                    float3 envColMix        = lerp(envColMixCore, envColMixGraze.xxx, envGrazeMask);
-                    envColMix               = lerp(envColMix, LinearRgbToLuminance_ac(envColMix), _AmbientColorDesat);
+                    float envColMixGraze    = grazingTerm * (1 + colGIGray);
+                    float3 envColMix        = lerp(envColMixCore, envColMixGraze.xxx, envGrazeMask); //// graze effect
                     colReflect              = colEnv;
                     colReflect              *= surfaceReduction.xxx * aoSpecularM.xxx;
                     colReflect              *= envColMix;
+                    // colReflect              *= lightAverageLum;
+                    // return float4(colReflect,1);
                 }
 #endif //// UNITY_PASS_FORWARDBASE
                 //// spec matcap
                 if (_MatCap){
-                    envColMixCore           = lerp(envColMixCore, LinearRgbToLuminance_ac(envColMixCore), _AmbientColorDesat);
-                    colReflect              += mcMixAdd * _MatCapColAdd.rgb * _MatCapColAdd.a * envColMixCore * matcapShaMask * aoSpecularM;
+                    colReflect      += mcMixAdd * _MatCapColAdd.rgb * specularMatcapDes * lightAverageLum * _MatCapColAdd.a * matcapShaMask * aoSpecularM;
                 }
 
 
 
-//// energy conservation
-                set_LightColor              = lerp(set_LightColor, LinearRgbToLuminance_ac(set_LightColor), _AmbientColorDesat);
-                float3 colDiffuseTerms      = (colDiffuse) * set_LightColor;
-                float3 colSpecularTerms     = (colSpecular + colFernel) * set_LightColor + colReflect;
+                //// energy conservation
+                float3 colDiffuseTerms      = (colDiffuse);
+                float3 colSpecularTerms     = colSpecular + colFernel + colReflect;
+                // float3 colSpecularTerms     = (colSpecular + colFernel) * lightDirectSource + colReflect;
                 //// solve oneMinusReflectivity again. Might be use for transparancy
                 colDiffuseTerms             = EnergyConservationBetweenDiffuseAndSpecular_ac(
                                                 _Is_BlendAddToHiColor, colDiffuseTerms, specularSrcCol, oneMinusReflectivity); /// oneMinusReflectivity unused
@@ -999,14 +1040,39 @@
                 fragColor.rgb   = colDiffuseTerms + colSpecularTerms;
                 fragColor.a     = alpha;
 #endif //// NotAlpha
-
                 fragColor.rgb   = max(0, fragColor);
+                if (_forceLightClamp)
+                {
+                    float sceneIntensity = LinearRgbToLuminance_ac(lightDirectSource + lightIndirectSource);
+                    if (sceneIntensity > 1.0) //// bloom defaults at > 1.1
+                    {
+                        fragColor.rgb = fragColor.rgb / sceneIntensity;
+                    }
+                } 
                 //// blend emission
 #ifdef UNITY_PASS_FORWARDBASE
                 emissionMix     = lerp( lerp(0, fragColor.rgb, emissiveMask.g), (emissionMix), emissiveMask.g);
                 colEmission     = emissionMix;
                 fragColor.rgb   += colEmission;
 #endif // UNITY_PASS_FORWARDBASE
+
+                //// backface tint
+                if (isBackFace){
+                    fragColor.rgb *= _backFaceColorTint;
+                }
+
+                if (!(_forceLightClamp)) /// non HDR self post pressing, like standard cheats on emission.
+                {
+                #ifndef UNITY_HDR_ON
+                    //// non HDR maps recurve
+                    float ExposureBias  = 2;
+                    float3 curr = Uncharted2Tonemap(fragColor.rgb * ExposureBias);
+                    float3 whiteScale   = 1 / Uncharted2Tonemap(11.2);
+                    fragColor.rgb   =  curr * whiteScale;
+                    ////
+                    // fragColor.rgb   = ACESFilm(fragColor.rgb);
+                #endif
+                }
 
                 UNITY_APPLY_FOG(i.fogCoord, fragColor);
                 return fragColor;

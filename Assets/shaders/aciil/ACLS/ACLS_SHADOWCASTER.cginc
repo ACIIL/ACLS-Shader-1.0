@@ -26,6 +26,7 @@
 
 			struct VertexInput {
 				float4 vertex : POSITION;
+				float3 normal : NORMAL;
 				float2 texcoord0 : TEXCOORD0;
 			};
 
@@ -40,17 +41,18 @@
 
 
 
-			VertexOutput vert (
-				float4 vertex : POSITION,
-				float2 uv : TEXCOORD0,
-				out float4 outpos : SV_POSITION
-			) {
-				VertexOutput o	= (VertexOutput)0;
-				o.uv0			= uv;
-				outpos		= UnityObjectToClipPos( vertex );
-				o.worldPos		= mul( unity_ObjectToWorld, vertex);
-				// TRANSFER_SHADOW_CASTER(o)
-				return o;
+			void vert(
+				VertexInput v,
+				out VertexOutput o,
+				out float4 opos : SV_POSITION
+			)
+			{
+				o.uv0 = v.texcoord0;
+				opos = UnityObjectToClipPos(v.vertex);
+				o.worldPos = mul( unity_ObjectToWorld, v.vertex);
+				// float4 position	= UnityClipSpaceShadowCasterPos(v.vertex, v.normal);
+				// o.worldPos	= UnityApplyLinearShadowBias(position);
+				// opos	= o.worldPos;
 			}
 
 
@@ -58,7 +60,8 @@
 
 
 
-			float4 frag(VertexOutput i, UNITY_VPOS_TYPE screenPos : VPOS) : SV_TARGET {
+			float4 frag(VertexOutput i, UNITY_VPOS_TYPE screenPos : VPOS) : SV_TARGET 
+			{
 #ifndef NotAlpha
 				float2 Set_UV0			= i.uv0;
 				float4 clippingMaskTex	= tex2D(_ClippingMask,TRANSFORM_TEX(Set_UV0, _ClippingMask));
@@ -73,16 +76,16 @@
 				float dither			= ScreenDitherToAlphaCutout_ac(screenPos.xy, (1 - clipTest));
 				// float dither			= tex3D(_DitherMaskLOD, float3(screenPos.xy * .25, clipTest * .99)).a;
 				alpha					= alpha - dither;
-				// alpha					= (alpha - 0.5);
-				// alpha					= (alpha - 0.01);
 				clip(alpha );
 				// clip(alpha );
 	#else //// Dither
 				clip(clipTest);
 	#endif //// Dither
-				SHADOW_CASTER_FRAGMENT(i)
+				return 0;
+				// SHADOW_CASTER_FRAGMENT(i)
 #else //// NotAlpha
-				SHADOW_CASTER_FRAGMENT(i)
+				return 0;
+				// SHADOW_CASTER_FRAGMENT(i)
 #endif //// NotAlpha
 			}
 #endif // ACLS_SHADOWCASTER
