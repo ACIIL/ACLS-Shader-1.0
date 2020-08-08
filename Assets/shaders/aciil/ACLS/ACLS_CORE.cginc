@@ -166,24 +166,28 @@
                 float4 tangent  : TANGENT;
                 float2 uv       : TEXCOORD0;
                 float4 color    : COLOR;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
             
             //// test "_centroid" for MSAA workarounds
             struct VertexOutput {
-                float4 color    : COLOR0;
                 float4 pos      : SV_POSITION;
+                float4 color    : COLOR0;
                 float4 center   : TEXCOORD0;
-                float4 worldPos : TEXCOORD1;
+                float3 worldPos : TEXCOORD1;
                 float3 wNormal  : TEXCOORD2;
                 float4 tangent  : TEXCOORD3;
                 float3 bitTangent   : TEXCOORD4;
                 float3 vertexLighting    : TEXCOORD5;
-                float3 dirGI        : TEXCOORD7;
-                float2 uv           : TEXCOORD8;
-                float4 screenPos    : TEXCOORD9;
-                float3 vertTo0      : TEXCOORD10;
+                float3 dirGI        : TEXCOORD6;
+                float2 uv           : TEXCOORD7;
+                float4 screenPos    : TEXCOORD8;
+                float3 vertTo0      : TEXCOORD9;
+                UNITY_FOG_COORDS(10)
                 UNITY_SHADOW_COORDS(11)
-                UNITY_FOG_COORDS(12)
+                // LIGHTING_COORDS(11,12)
+                UNITY_VERTEX_INPUT_INSTANCE_ID
+                UNITY_VERTEX_OUTPUT_STEREO
             };
 
 
@@ -194,18 +198,24 @@
 //// vert            
             VertexOutput vert (VertexInput v) 
             {
-                VertexOutput o  = (VertexOutput)0;
-                o.pos           = UnityObjectToClipPos( v.vertex );
+                UNITY_SETUP_INSTANCE_ID(v);
+                VertexOutput o;
+                // VertexOutput o  = (VertexOutput)0;
+                UNITY_INITIALIZE_OUTPUT(VertexOutput, o);
+                UNITY_TRANSFER_INSTANCE_ID(v, o);
+                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
+                o.pos           = UnityObjectToClipPos(v.vertex);
+                o.uv            = v.uv;
                 o.worldPos      = mul( unity_ObjectToWorld, v.vertex);
                 o.center        = mul( unity_ObjectToWorld, float4(0,0,0,1));
                 o.wNormal       = UnityObjectToWorldNormal( v.normal);
                 o.tangent       = ( float4(UnityObjectToWorldDir(v.tangent.xyz), v.tangent.w));
                 o.bitTangent    = ( cross( o.wNormal, o.tangent.xyz ) * v.tangent.w);
-                o.uv            = v.uv;
                 o.screenPos     = ComputeScreenPos(o.pos);
                 o.color         = v.color;
+                // TRANSFER_VERTEX_TO_FRAGMENT(o);
+                UNITY_TRANSFER_SHADOW(o, 0);  // o.uv1 used for lightmap variants (dont exist)
                 UNITY_TRANSFER_FOG(o, o.pos);
-                UNITY_TRANSFER_SHADOW(o, o.uv);
 
 #ifdef VERTEXLIGHT_ON
                 o.vertexLighting    = softShade4PointLights_Atten(
@@ -265,6 +275,9 @@
                 VertexOutput i
                 , bool frontFace : SV_IsFrontFace ) : SV_TARGET 
             {
+                // UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
+                UNITY_SETUP_INSTANCE_ID(i);
+
                 int isBackFace          = !frontFace;
                 i.wNormal               = normalize( i.wNormal);
                 if(isBackFace) { //// flip normal for back faces.
@@ -450,11 +463,19 @@
 //// Light attenuation (falloff and shadows), used for mixing in shadows and effects that react to shadow
             #ifdef DIRECTIONAL 
                 //// directional lights handle UNITY_LIGHT_ATTENUATION() differently. I want to split attenuation and shadows, but both concepts fuse in directional lights
+                // float lightAtten = LIGHT_ATTENUATION(i);
+                // UNITY_LIGHT_ATTENUATION(lightAtten, i, i.worldPos.xyz);
                 UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
+                if ( !(any(_LightColor0.rgb))) /// lightAtten is random in scenes without directional lights. Using this raw is unstable so we correct when lacking light color.
+                {
+                    lightAtten = 1;
+                }
                 float shadowFullTrue = lightAtten;
                 lightAtten = smoothstep(0, 0.6, lightAtten);
                 float shadowAtten = lightAtten;
             #else
+                // float lightAtten = LIGHT_ATTENUATION(i);
+                // UNITY_LIGHT_ATTENUATION(lightAtten, i, i.worldPos.xyz);
                 UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
                 float shadowAtten = UNITY_SHADOW_ATTENUATION(i, i.worldPos.xyz);
                 float shadowFullTrue = shadowAtten;

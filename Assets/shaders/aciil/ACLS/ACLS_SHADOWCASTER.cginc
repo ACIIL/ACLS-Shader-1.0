@@ -28,12 +28,15 @@
 				float4 vertex : POSITION;
 				float3 normal : NORMAL;
 				float2 texcoord0 : TEXCOORD0;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
 			};
 
 			struct VertexOutput {
 				// V2F_SHADOW_CASTER;
 				float2 uv0 : TEXCOORD0;
 				float4 worldPos	: TEXCOORD1;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
+                UNITY_VERTEX_OUTPUT_STEREO
 			};
 
 
@@ -47,6 +50,11 @@
 				out float4 opos : SV_POSITION
 			)
 			{
+                o  = (VertexOutput)0;
+                UNITY_SETUP_INSTANCE_ID(v);
+                // UNITY_INITIALIZE_OUTPUT(VertexOutput, o);
+                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
+
 				o.uv0 = v.texcoord0;
 				opos = UnityObjectToClipPos(v.vertex);
 				o.worldPos = mul( unity_ObjectToWorld, v.vertex);
@@ -62,6 +70,7 @@
 
 			float4 frag(VertexOutput i, UNITY_VPOS_TYPE screenPos : VPOS) : SV_TARGET 
 			{
+				UNITY_SETUP_INSTANCE_ID(i);
 #ifndef NotAlpha
 				float2 Set_UV0			= i.uv0;
 				float4 clippingMaskTex	= tex2D(_ClippingMask,TRANSFORM_TEX(Set_UV0, _ClippingMask));
@@ -81,11 +90,11 @@
 	#else //// Dither
 				clip(clipTest);
 	#endif //// Dither
-				return 0;
-				// SHADOW_CASTER_FRAGMENT(i)
+				// return 0;
+				SHADOW_CASTER_FRAGMENT(i)
 #else //// NotAlpha
-				return 0;
-				// SHADOW_CASTER_FRAGMENT(i)
+				// return 0;
+				SHADOW_CASTER_FRAGMENT(i)
 #endif //// NotAlpha
 			}
 #endif // ACLS_SHADOWCASTER
