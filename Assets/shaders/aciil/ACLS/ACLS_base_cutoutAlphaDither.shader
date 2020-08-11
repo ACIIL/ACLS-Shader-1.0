@@ -14,7 +14,7 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
         _MainTex("Main Tex", 2D)                                            = "white" {}
         [Enum(Self,0,MainTex,1)] _Use_BaseAs1st("1st shade source", Int)    = 1
         [NoScaleOffset] _1st_ShadeMap("--1st shade Tex", 2D)                = "white" {}
-        [Enum(Self,0,Shade1,1,MainTex,2)] _Use_1stAs2nd("2nd shade source", Int) = 1
+        [Enum(Self,0,Shade1,1,MainTex,2)] _Use_1stAs2nd("2nd shade source", Int) = 2
         [NoScaleOffset] _2nd_ShadeMap("--2nd shade Tex", 2D)                = "white" {}
         [HDR] _Color("Base color", Color)                                   = (1,1,1,1)
         [HDR] _0_ShadeColor("--Foward color", Color)                        = (0.97,0.97,0.97,1)
@@ -259,7 +259,7 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
             #pragma multi_compile_shadowcaster
             #pragma multi_compile_instancing
             #define Dither
-            #include "ACLS_ShadowCaster.cginc"
+            #include "ACLS_SHADOWCASTER.cginc"
             ENDCG
         }
     }

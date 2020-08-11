@@ -201,7 +201,7 @@ public class ACLSInspector : ShaderGUI
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_ToonRampLightSourceType_Backwards, new GUIContent("Diffuse Backwards Light Mode", "For pbr/npr effects on diffuse backface area.\nAll Light: Adds direct(with shadows) and ambient light together.\nNatural ambient: Closer to PBR, backface is only ambient light as there is realistically no direct light."));
                 ACLStyles.PartingLine();
-                materialEditor.ShaderProperty(_forceLightClamp, new GUIContent("Scene Light clamping", "Hard Counter for overbright maps.\nHDR: When map has correctly setup \"Exposure High Definition Range (HDR)\": balancing brightness with post proccess in a realistic range.\nLimit: Prevention when map overblows your avatar colors or you glow. These maps typically attempted \"Low Definition Range (LDR)\" light levelling, were it assumes scene lights are never over 100% white and toon shaders may clamp to 100% as enforcement rule, and that only emission light goes over 100% which causes bloom."));
+                materialEditor.ShaderProperty(_forceLightClamp, new GUIContent("Scene Light Clamping", "Hard Counter for overbright maps.\nHDR: When map has correctly setup \"Exposure High Definition Range (HDR)\": balancing brightness with post proccess in a realistic range.\nLimit: Prevention when map overblows your avatar colors or you glow. These maps typically attempted \"Low Definition Range (LDR)\" light levelling, were it assumes scene lights are never over 100% white and toon shaders may clamp to 100% as enforcement rule, and that only emission light goes over 100% which causes bloom."));
                 if (!(iscutoutAlpha)){
                     materialEditor.ShaderProperty(_BlendOp, new GUIContent("Additional Lights Blending", "How realtime Point and Spot lights combine color.\nRecommend MAX for NPR lighting that reduces overblowing color in none \"Exposure HDR\" maps (See Scene Light clamping for def).\nAdd: PBR,If you trust the maps lighting set for correct light adding.\nNot usable in Alpha Transparent due to Premultiply alpha blending needing ADD."));
                 }
@@ -211,18 +211,18 @@ public class ACLSInspector : ShaderGUI
             if (showToonramp)
             {
                 // materialEditor.ShaderProperty(_CullMode, _CullMode.displayName);
-                materialEditor.TexturePropertySingleLine(new GUIContent("Main (Forward) Texture", "Main texture. As Forward Area intended for surface most towards light and the visual effect of being in direct light."), _MainTex);
+                materialEditor.TexturePropertySingleLine(new GUIContent("Main Texture(Forward)", "Main texture. As Forward Area intended for surface most towards light and the visual effect of being in direct light."), _MainTex);
                 // materialEditor.TexturePropertySingleLine(new GUIContent("Main Tex", ""), _MainTex, _Color);
                 EditorGUI.indentLevel++;
                 materialEditor.TextureScaleOffsetProperty(_MainTex);
                 EditorGUI.indentLevel--;
                 materialEditor.ShaderProperty(_Use_BaseAs1st, new GUIContent("Core Source", "Unless you have custom set to MainTex."));
                 EditorGUI.indentLevel++;
-                materialEditor.TexturePropertySingleLine(new GUIContent("Core Texture", "If used as source. A NPR helper, \"Core Area\' is intended as the core area were light slowly angles perpendicular and artistically painted NPR effects may occur. For example painted subsurface colouring as light penetrates the acute surface and emits within the core shallows, or shadows may be painted to indicated ambient occlusion, where light cannot enter and leave this sharp angle."), _1st_ShadeMap);
+                materialEditor.TexturePropertySingleLine(new GUIContent("Core Texture", "If used as source. A NPR helper, \"Core Area\' is intended as the core area were light slowly angles perpendicular and artistically painted NPR effects may occur, for example painted subsurface colouring as light penetrates the acute surface and emits within the surface, or shadows may be painted to hint ambient occlusion(where light cannot enter and leave this sharp angle)."), _1st_ShadeMap);
                 EditorGUI.indentLevel--;
                 materialEditor.ShaderProperty(_Use_1stAs2nd, new GUIContent("Backward Source", "Unless you have custom set to MainTex."));
                 EditorGUI.indentLevel++;
-                materialEditor.TexturePropertySingleLine(new GUIContent("Backward Texture", "If used as source. A NPR helper, \"Backwards Area\' is intended as the area were direct light cannot hit and artistically painted represents only ambient light and no painted on shadows."), _2nd_ShadeMap);
+                materialEditor.TexturePropertySingleLine(new GUIContent("Backward Texture", "If used as source. A NPR helper, \"Backwards Area\' is intended as the area were direct light cannot hit and artistically painted represents ambient light and no painted on shadows."), _2nd_ShadeMap);
                 EditorGUI.indentLevel--;
                 materialEditor.ShaderProperty(_Color, new GUIContent("Primary Diffuse Color", "Primary diffuse color control."));
                 EditorGUI.indentLevel++;
@@ -231,13 +231,13 @@ public class ACLSInspector : ShaderGUI
                 materialEditor.ShaderProperty(_2nd_ShadeColor, new GUIContent("Backward Color", "See Backword Texture tooltip."));
                 EditorGUI.indentLevel--;
                 ACLStyles.PartingLine();
-                materialEditor.ShaderProperty(_BaseColor_Step, new GUIContent("Step Core", "Were Forward area blends to Core and Core overwraps Backwards Area\n0.5 is perpendicular to direct light."));
+                materialEditor.ShaderProperty(_BaseColor_Step, new GUIContent("Step Core", "Were Forward Area blends to Core and Core overwraps Backwards Area\n0.5 is perpendicular to direct light."));
                 EditorGUI.indentLevel++;
-                materialEditor.ShaderProperty(_BaseShade_Feather, new GUIContent("Feather Core", "Softens warp, wraps away from light, so increase Step Core as you soften."));
+                materialEditor.ShaderProperty(_BaseShade_Feather, new GUIContent("Feather Core", "Softens warp. Wraps away from light, so increase Step Core as you soften."));
                 EditorGUI.indentLevel--;
-                materialEditor.ShaderProperty(_ShadeColor_Step, new GUIContent("Step Backward", "Were Backward area blends behind & within Core Area.\n0.5 is perpendicular to direct light."));
+                materialEditor.ShaderProperty(_ShadeColor_Step, new GUIContent("Step Backward", "Were Backward Area blends behind & within Core Area.\n0.5 is perpendicular to direct light."));
                 EditorGUI.indentLevel++;
-                materialEditor.ShaderProperty(_1st2nd_Shades_Feather, new GUIContent("Feather Backward", "Softens warp, wraps away from light, so increase Backwards Step as you soften."));
+                materialEditor.ShaderProperty(_1st2nd_Shades_Feather, new GUIContent("Feather Backward", "Softens warp. Wraps away from light, so increase Backwards Step as you soften."));
                 EditorGUI.indentLevel--;
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_Diff_GSF_01, new GUIContent("Diffuse GSF Effect",  "Custom Geometric Shadowing Function (GSF) effect to simulate darkening or tinting of diffuse light in rough or penetrable surfaces at acute angles.\nEnabling will reveal The true mixing of regions between Forward/Core/Backaward Areas. Use this to help setup NPR cloth/skin/subsurface/iridescents setups."));
@@ -251,13 +251,13 @@ public class ACLSInspector : ShaderGUI
             if (showLightMapShiftMasks)
             {
                 materialEditor.TexturePropertySingleLine(new GUIContent("Diffuse Core AO (G)", "Manually forces diffuse \"Forwards\' Area to \'Core\' Area. Use to manually blend toon shadows by texture UV dynamically and union to light angle... which typically if painted on looks \"baked\" or unrealistic.\nYou may use a Ambient Occlusion Texture for this."), _Set_1st_ShadePosition);
-                EditorGUI.indentLevel++;
-                materialEditor.TextureScaleOffsetProperty(_Set_1st_ShadePosition);
-                EditorGUI.indentLevel--;
+                // EditorGUI.indentLevel++;
+                // materialEditor.TextureScaleOffsetProperty(_Set_1st_ShadePosition);
+                // EditorGUI.indentLevel--;
                 materialEditor.TexturePropertySingleLine(new GUIContent("Diffuse Backward AO (G)", "Manually forces diffuse \"Core\' Area to \'Backwards\' Area. Use to manually blend toon shadows by texture UV dynamically and union to light angle... which typically if painted on looks \"baked\" or unrealistic.\nYou may use a Ambient Occlusion Texture for this."), _Set_2nd_ShadePosition);
-                EditorGUI.indentLevel++;
-                materialEditor.TextureScaleOffsetProperty(_Set_2nd_ShadePosition);
-                EditorGUI.indentLevel--;
+                // EditorGUI.indentLevel++;
+                // materialEditor.TextureScaleOffsetProperty(_Set_2nd_ShadePosition);
+                // EditorGUI.indentLevel--;
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_UseLightMap, new GUIContent("LightMap Mode", "Overrides Diffuse NPR/PBR toon ramp wrapping according to intensity like a dynamic ambient occlusion (AO) mask which react to light direction onto the surface.\nScaled so 50% gray is no change, 100% white is bias towards Forward area, and 0% black is bias towards Backward Area.\nUse this Like a dynamic and reactive ambient occlusion mask to finely control NPR behaviour on diffuse.\nSetup: Define the diffuse area colors; set Core and Backward Steps to 0.5 (and Feather 0.0 for debug); apply & enable the light map from a AO mask; then finely control the Relevel's below for contolled diffuse wrapping."));
                  EditorGUILayout.HelpBox("However LightMap Mode for usage and setup.", MessageType.None, true);
@@ -279,7 +279,7 @@ public class ACLSInspector : ShaderGUI
             {
                 materialEditor.ShaderProperty(_UseSpecularSystem, new GUIContent("Enable Specular", "Enables The direct light and Cubemap effects. Off effectively sets Primary Specular Color black which means both are off."));
                 ACLStyles.PartingLine();
-                materialEditor.ShaderProperty(_Is_BlendAddToHiColor, new GUIContent("Energy Conservation", "PBR and follows Standard Shader. Where specular intensity dims diffuse color."));
+                materialEditor.ShaderProperty(_Is_BlendAddToHiColor, new GUIContent("Energy Conservation", "PBR and follows Standard Shader. Where specular Mask intensity dims diffuse color."));
                 materialEditor.ShaderProperty(_SpecColor, new GUIContent("Primary Specular Color", "Applies tint on Specular shine and Cubemap color."));
                 materialEditor.ShaderProperty(_Glossiness, new GUIContent("Smoothness", "Follows Standard. Higher reflects the world more perfectly. Affects Shine lobe and Cubemap."));
                 materialEditor.TexturePropertySingleLine(new GUIContent("Specular Mask(RGB). Smoothness(A)", "You must know how \"specular setup\" works. (RGB) intensity means more metallic, lower color saturation means more metallic (reflects without tint from surface). (A) is Smoothness value."), _HighColor_Tex);
@@ -309,7 +309,7 @@ public class ACLSInspector : ShaderGUI
                 // // EditorGUI.indentLevel--;
                 EditorGUI.indentLevel--;
                 ACLStyles.PartingLine();
-                materialEditor.ShaderProperty(_ENVMmode, new GUIContent("Enable & Contols", "Cubemap visibility is off unless set here.\nStandard: Follows Standard Shader formula.\nOverride: You define Intensity and Roughness exactly."));
+                materialEditor.ShaderProperty(_ENVMmode, new GUIContent("Enable & Controls", "Cubemap visibility is off unless set here.\nStandard: Follows Standard Shader formula.\nOverride: You define Intensity and Roughness exactly."));
                 EditorGUI.indentLevel++;
                 materialEditor.ShaderProperty(_ENVMix, new GUIContent("Intensity", "With Standard: Rescales value by this.\nWith Override: Replace the value from smoothness and ignores roughness mask (can use this to blur Cubemap into abstract tone)."));
                 materialEditor.ShaderProperty(_envRoughness, new GUIContent("Roughness", "For Override only."));
@@ -354,17 +354,17 @@ public class ACLSInspector : ShaderGUI
                 materialEditor.ShaderProperty(_MatCap, new GUIContent("Use Matcaps", "Uses all or none. (Currently this to simplify solving 3 unique matcap systems and hit performance)"));
                 ACLStyles.PartingLine();
                 materialEditor.TexturePropertySingleLine(new GUIContent("Diffuse Type (Multiplies)", "Use this for \"baked\" toon ramp, subsurface, or iridescent Matcaps. It multiplies on the Diffuse Texture and then adds result. Lighting is Direct(with shadows) + Indirect.\nMasked by Diffuse Matcap Mask."), _MatCapTexMult, _MatCapColMult);
-                EditorGUI.indentLevel++;
-                materialEditor.TextureScaleOffsetProperty(_MatCapTexMult);
-                EditorGUI.indentLevel--;
+                // EditorGUI.indentLevel++;
+                // materialEditor.TextureScaleOffsetProperty(_MatCapTexMult);
+                // EditorGUI.indentLevel--;
                 materialEditor.TexturePropertySingleLine(new GUIContent("Specular Type (Additive)", "Use this for \"baked\" Specular Reflection Matcaps. Intensity works like Cubemap Fallback.\nMasked by Global Specular Mask."), _MatCapTexAdd, _MatCapColAdd);
-                EditorGUI.indentLevel++;
-                materialEditor.TextureScaleOffsetProperty(_MatCapTexAdd);
-                EditorGUI.indentLevel--;
+                // EditorGUI.indentLevel++;
+                // materialEditor.TextureScaleOffsetProperty(_MatCapTexAdd);
+                // EditorGUI.indentLevel--;
                 materialEditor.TexturePropertySingleLine(new GUIContent("Emission Type", "Adds in texture and scales to HDR Color as set.\nMasked by Emission masks."), _MatCapTexEmis, _MatCapColEmis);
-                EditorGUI.indentLevel++;
-                materialEditor.TextureScaleOffsetProperty(_MatCapTexEmis);
-                EditorGUI.indentLevel--;
+                // EditorGUI.indentLevel++;
+                // materialEditor.TextureScaleOffsetProperty(_MatCapTexEmis);
+                // EditorGUI.indentLevel--;
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_Tweak_MatCapUV, new GUIContent("Scale UV", ""));
                 materialEditor.ShaderProperty(_Rotate_MatCapUV, new GUIContent("Rotate UV", ""));
@@ -377,7 +377,7 @@ public class ACLSInspector : ShaderGUI
                 EditorGUI.indentLevel--;
                 materialEditor.ShaderProperty(_Rotate_NormalMapForMatCapUV, new GUIContent("Rotate UV", ""));
                 ACLStyles.PartingLine();
-                materialEditor.TexturePropertySingleLine(new GUIContent("Diffuse Matcap Mask", ""), _Set_MatcapMask);
+                materialEditor.TexturePropertySingleLine(new GUIContent("Mask Diffuse Matcap", ""), _Set_MatcapMask);
                 EditorGUI.indentLevel++;
                 materialEditor.TextureScaleOffsetProperty(_Set_MatcapMask);
                 EditorGUI.indentLevel--;
