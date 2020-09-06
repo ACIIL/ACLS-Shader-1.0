@@ -757,4 +757,11 @@
             return      ((start*cos(theta)) + (RelativeVec*sin(theta)));
         }
 
+        //// Lyuma. (Silent?)
+        float stepButAntialiased(float x0, float x) {
+            float u = (x - x0);
+            float pixwid = fwidth(u);
+            return clamp(u / pixwid + 0.5, 0.0, 1.0);
+        }
+
 #endif

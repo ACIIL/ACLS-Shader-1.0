@@ -148,12 +148,19 @@
             // uniform float _Occlusion_Rim;
             // uniform float _Occlusion_MatAdd;
             uniform int _ToonRampLightSourceType_Backwards;
+            uniform half _diffuseIndirectDirectSimMix;
             uniform int _UseSpecularSystem;
             uniform float3 _backFaceColorTint;
             uniform float4 _SpecularMaskHSV;
             uniform int _forceLightClamp;
             uniform float _rimAlbedoMix;
             uniform float _directLightIntensity;
+            uniform half _McDiffAlbedoMix;
+            uniform half _indirectAlbedoMaxAveScale;
+            uniform half _indirectGIDirectionalMix;
+            uniform half _indirectGIBlur;
+            uniform half _emissiveUseMainTexA;
+            uniform half _emissiveUseMainTexCol;
 
 
 
@@ -576,7 +583,7 @@
                     float dynamicShadowMask = _DynamicShadowMask.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
                     float tmp       = max(_shadowCastMin_black, dynamicShadowMask);
                     shadowBlackness = saturate( (shadowAttenuation + tmp)/(1 - tmp));
-                    shadowMinPotential  = saturate( (_LightShadowData.x + tmp)/(1 - tmp));
+                    // shadowMinPotential  = saturate( (_LightShadowData.x + tmp)/(1 - tmp));
                 } else
                 {
                     shadowBlackness = shadowAttenuation;
@@ -587,24 +594,37 @@
 
 //// collect scene light sources
 #ifdef UNITY_PASS_FORWARDBASE
+                //// build indirect light source
                 float3 lightIndirectColAve  = DecodeLightProbe_average();   //// average light from raw L0
-                float3 lightIndirectMaxCol  = SHEvalDirectL1(float4(i.dirGI,1));    //// direct most light raw L1
-                float3 lightIndirectAngCol  = shadeSH9LinearAndWhole(float4(i.wNormal,1));  //// All GI from direction and fixed for no negatives
-                // float scaleGIL0L1           = saturate(LinearRgbToLuminance_ac(lightIndirectMaxCol) / (LinearRgbToLuminance_ac(lightIndirectColAve) + 0.00001) * .9);
-                float scaleGIL0L1           = saturate(LinearRgbToLuminance_ac(lightIndirectMaxCol) - (LinearRgbToLuminance_ac(lightIndirectColAve)).xxx + 0.00001) * 1;
-                float3 lightIndirectCol     = lerp(lightIndirectMaxCol, lightIndirectColAve, scaleGIL0L1);
-                //// build direct light sources
-                float3 lightDirect          = _LightColor0.rgb;
-                float3 lightDirectSave      = lightDirect;
+                float3 lightIndirectColMax  = SHEvalDirectL1(float4(i.dirGI,1));    //// direct most light raw L1
+                float3 lightIndirectColStatic = 0, lightIndirectColDir = 0;
+                if ((_indirectGIDirectionalMix) < 1)
+                {
+                    half GI_Max = LinearRgbToLuminance_ac(lightIndirectColMax), GI_Ave = LinearRgbToLuminance_ac(lightIndirectColAve);
+                    half GI_MaxAveDif = ((GI_Max * _indirectAlbedoMaxAveScale) - GI_Ave);
+                    half GI_MaxAveSum = GI_Max + GI_Ave;
+                    half GI_MaxAveRatio = saturate(GI_MaxAveDif / GI_MaxAveSum);
+                    lightIndirectColStatic   = lerp(lightIndirectColMax, lightIndirectColAve, GI_MaxAveRatio);
+                }
+                if (_indirectGIDirectionalMix > 0)
+                {
+                    float4 indirectGIDirectionBlur  = float4(i.wNormal, (_indirectGIBlur + 0.001) );
+                    lightIndirectColDir = max(0, ShadeSH9_ac(indirectGIDirectionBlur)) / (indirectGIDirectionBlur.w);
+                    // float3 lightIndirectColAngle = shadeSH9LinearAndWhole(float4(i.wNormal,1));  //// not blur adaptiable without intense math
+                }
+                float3 lightIndirectCol = lerp(lightIndirectColStatic, lightIndirectColDir, _indirectGIDirectionalMix);
+                //// build direct light source
+                float3 lightDirect      = _LightColor0.rgb;
+                float3 lightDirectSave  = lightDirect;
                 //// build ambient LUM for reflection types
                 float lightAverageLum   = LinearRgbToLuminance_ac((lightDirectSave * _LightShadowData.x * .5) + lightDirectSave + (lightIndirectCol)) * .34;
                 float3 vertexLit        = i.vertexLighting;
                 //// out light source by types
-                float3 lightDirectSource    = (mixColorsMaxAve(lightIndirectMaxCol, lightDirect) + vertexLit) * _directLightIntensity;
-                float3 lightIndirectSource  = lightIndirectCol + vertexLit;
+                float3 lightDirectSource    = (mixColorsMaxAve(lightIndirectColMax, lightDirect) + vertexLit) * _directLightIntensity;
+                float3 lightIndirectSource  = (lightIndirectCol + vertexLit);
 #elif UNITY_PASS_FORWARDADD
                 float3 lightIndirectColAve  = 0;
-                float3 lightIndirectAngCol  = 0;
+                float3 lightIndirectColAngle = 0;
                 float3 lightDirect          = _LightColor0.rgb;
                 float3 lightDirectSave      = lightDirect;
                 lightDirect                 *= lightAtten;
@@ -689,12 +709,11 @@
                 if (_ToonRampLightSourceType_Backwards > 0) //// diffuse lighting: backface ramp is part of shadow
                 {
                     float n2ShadowMask = 1 - min((1-shadeRamp_n2), shadowBlackness);
-                    shadeRamp_n2 = n2ShadowMask;
+                    shadeRamp_n2 = n2ShadowMask; //// make Backward Area be forced Dynamic shadow from its wrap
                     float3 lightDirectSim = (lightDirectSource * shadowBlackness) + lightIndirectSource;
                     shadeCol_1 *= lightDirectSim;
                     shadeCol_2 *= lightDirectSim;
-                    shadeCol_3 *= lightIndirectSource;
-                    // shadeCol_3 *= (lightDirectSource * max(shadowMinPotential, _LightShadowData.x)) + lightIndirectSource;
+                    shadeCol_3 *= lerp(lightIndirectSource, lightDirectSim, _diffuseIndirectDirectSimMix);
                 } else //// diffuse lighting: shadow is independent of ramp
                 {
                     float3 lightDirectSim = (lightDirectSource * shadowBlackness) + lightIndirectSource;
@@ -941,6 +960,14 @@
 #ifdef UNITY_PASS_FORWARDBASE
                 float4 emissiveMask     = _Emissive_Tex.Sample( sampler_EmissionColorTex_trilinear_repeat, TRANSFORM_TEX( i.uv, _Emissive_Tex));
                 float4 emissionTex      = _EmissionColorTex.Sample( sampler_EmissionColorTex_trilinear_repeat, TRANSFORM_TEX( i.uv, _EmissionColorTex));
+                if (_emissiveUseMainTexA) //// because i know games that store emission mask in main texture alpha channel
+                {
+                    emissiveMask.g  = mainTex.a;
+                }
+                if (_emissiveUseMainTexCol) //// and color from main texture
+                {
+                    emissionTex.rgba = mainTex.rgba;
+                }
                 float3 emissionColor    = max( (_EmissiveProportional_Color * lightAverageLum), _Emissive_Color.rgb);
                 float3 emissionMixReal  = emissionTex.rgb * emissionColor * emissionTex.a;
                 float3 emissionMix      = emissionMixReal;
@@ -970,7 +997,12 @@
                     {
                         float3 lightDirectSim = (shadowBlackness * lightDirectSource) + lightIndirectSource;
                         // float3 lightDirectSim = (shadowBlackness * lightDirectSource) + lightIndirectSource;
-                        colDiffuse = lerp(colDiffuse, (colDiffuse + (lightDirectSim * mcMixMult.rgb * _MatCapColMult.rgb * _MatCapColMult.a)), matcapMask);
+                        float3 diffMixMC = 1;
+                        if (_McDiffAlbedoMix)
+                        {
+                            diffMixMC = lerp(1, colDiffuse, _McDiffAlbedoMix);
+                        }
+                        colDiffuse = lerp(colDiffuse, (colDiffuse + (diffMixMC * (lightDirectSim * mcMixMult.rgb * _MatCapColMult.rgb * _MatCapColMult.a))), matcapMask);
                     }
                 }
 

@@ -25,7 +25,8 @@ Shader "ACiiL/toon/ACLS_Toon_Solid" {
         _BaseShade_Feather("--Feather: forward", Range(0.0001, 1))          = 0.001
         _ShadeColor_Step("Step: back", Range(0, 1))                         = 0.4
         _1st2nd_Shades_Feather("--Feather: back", Range(0.0001, 1))         = 0.001
-        [Enum(All Light,0,Natural ambient,1)] _ToonRampLightSourceType_Backwards("Toon ramp Backface light source type:",Int) = 0
+        [Enum(All Light,0,Natural Indirect,1)] _ToonRampLightSourceType_Backwards("Toon ramp Backface light source type:",Int) = 0
+        _diffuseIndirectDirectSimMix("Backward (In)Direct Mix", Range(0, 1)) = 0
         // _Set_SystemShadowsToBase("shadows mix core tone mix",Range(0,1)) = 0
         // [Space(18)]
         [Enum(Off,0,On,1)] _Diff_GSF_01("Toon ramp GSF effect", Int)        = 0
@@ -87,15 +88,21 @@ Shader "ACiiL/toon/ACLS_Toon_Solid" {
         _TweakMatCapOnShadow("Specular shadow mask", Range(0, 1))   = 0
         _Set_MatcapMask("Diffuse matcap mask (G)", 2D)  = "white" {}
         _Tweak_MatcapMaskLevel("--Tweak mask", Range(-1, 1))    = 0
+        _McDiffAlbedoMix("MC diff albedo mix", Range(0,1))  = 0
 
         // [Header(Emission)]
         [HDR] _Emissive_Color("Emissive color", Color)                          = (0,0,0,1)
         [HDR] _EmissiveProportional_Color("Emissive Proportional color", Color) = (0,0,0,1)
         _Emissive_Tex("Emissive mask (G)", 2D)                                  = "white" {}
         _EmissionColorTex("--Emissive color (RGB)", 2D)                         = "white" {}
+        [ToggleUI] _emissiveUseMainTexA("Emissive Use MainTex A",Int) = 0
+        [ToggleUI] _emissiveUseMainTexCol("Emissive Use MainTex Color",Int) = 0
 
         // [Header(Lighting Behaviour)]
         _directLightIntensity("Direct light intensity",Range(0,1)) = 1
+        _indirectAlbedoMaxAveScale("Indirect albedo maxAve Scale",Range(0.5,2)) = 1
+        _indirectGIDirectionalMix("Indirect GI dir mix",Range(0,1)) = 0
+        _indirectGIBlur("Indirect GI blur",Range(.5,4)) = 1
         [Enum(HDR,0,Limit,1)] _forceLightClamp("Force scene Lights Clamp",Int) = 0
         [Enum(Real ADD,0,Safe MAX,4)] _BlendOp("Additional lights blending", Float) = 4
         _shadowCastMin_black("Dynamic Shadow Removal",Range(0.0,1.0))          = 0.1
@@ -168,6 +175,7 @@ Shader "ACiiL/toon/ACLS_Toon_Solid" {
             }
 
             CGPROGRAM
+            #pragma target 5.0
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
@@ -205,6 +213,7 @@ Shader "ACiiL/toon/ACLS_Toon_Solid" {
             }
 
             CGPROGRAM
+            #pragma target 5.0
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
@@ -232,6 +241,7 @@ Shader "ACiiL/toon/ACLS_Toon_Solid" {
             ZWrite On ZTest LEqual
             
             CGPROGRAM
+            #pragma target 5.0
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"

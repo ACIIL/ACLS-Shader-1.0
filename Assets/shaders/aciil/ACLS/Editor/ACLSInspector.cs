@@ -33,6 +33,7 @@ public class ACLSInspector : ShaderGUI
     MaterialProperty _ShadeColor_Step = null;
     MaterialProperty _1st2nd_Shades_Feather = null;
     MaterialProperty _ToonRampLightSourceType_Backwards = null;
+    MaterialProperty _diffuseIndirectDirectSimMix = null;
     MaterialProperty _Diff_GSF_01 = null;
     MaterialProperty _DiffGSF_Offset = null;
     MaterialProperty _DiffGSF_Feather = null;
@@ -86,17 +87,23 @@ public class ACLSInspector : ShaderGUI
     MaterialProperty _TweakMatCapOnShadow = null;
     MaterialProperty _Set_MatcapMask = null;
     MaterialProperty _Tweak_MatcapMaskLevel = null;
+    MaterialProperty _McDiffAlbedoMix = null;
     // Emission
     MaterialProperty _Emissive_Color = null;
     MaterialProperty _EmissiveProportional_Color = null;
     MaterialProperty _Emissive_Tex = null;
     MaterialProperty _EmissionColorTex = null;
+    MaterialProperty _emissiveUseMainTexA = null;
+    MaterialProperty _emissiveUseMainTexCol = null;
     // Lighting Behaviour
     MaterialProperty _directLightIntensity = null;
+    MaterialProperty _indirectAlbedoMaxAveScale = null;
     MaterialProperty _forceLightClamp = null;
     MaterialProperty _BlendOp = null;
     MaterialProperty _shadowCastMin_black = null;
     MaterialProperty _DynamicShadowMask = null;
+    MaterialProperty _indirectGIDirectionalMix = null;
+    MaterialProperty _indirectGIBlur = null;
     // Light Map Shift Masks
     MaterialProperty _UseLightMap = null;
     MaterialProperty _LightMap = null;
@@ -148,6 +155,10 @@ public class ACLSInspector : ShaderGUI
     static bool showAlphamask = false;
     static bool StencilHelpers = false;
 
+    // static bool showBlahA = false;
+    // static bool showBlahB = false;
+    // static bool showBlahC = false;
+
     // test
     // static int testInt = 1337;
 
@@ -160,6 +171,8 @@ public class ACLSInspector : ShaderGUI
 
     public override void OnGUI(MaterialEditor materialEditor, MaterialProperty[] props)
     {
+        // float whatThis = (float)(EditorGUI.GetField("kIndentPerLevel").GetRawConstantValue()); 
+        // Debug.Log("blah " + whatThis);
         Material material = materialEditor.target as Material;
         Shader shader = material.shader;
 
@@ -184,6 +197,34 @@ public class ACLSInspector : ShaderGUI
             // testInt = EditorGUILayout.IntField(testInt);
 
             showLightingBehaviour = ACLStyles.ShurikenFoldout("General Lighting Behaviour", showLightingBehaviour);
+            // if (showLightingBehaviour)
+            // {
+            //     EditorGUILayout.LabelField("foo");
+            //     showBlahA = ACLStyles.ShurikenFoldout("blah tab A", showBlahA, EditorGUI.indentLevel);
+            //     EditorGUI.indentLevel++;
+            //     if (showBlahA)
+            //     {
+            //         EditorGUILayout.LabelField("foo");
+            //         showBlahB = ACLStyles.ShurikenFoldout("blah tab B", showBlahB, EditorGUI.indentLevel);
+            //         EditorGUI.indentLevel++;
+            //         if(showBlahB)
+            //         {
+            //             EditorGUILayout.LabelField("foo");
+            //             showBlahC = ACLStyles.ShurikenFoldout("blah tab C", showBlahC, EditorGUI.indentLevel);
+            //             EditorGUI.indentLevel++;
+            //             if(showBlahC)
+            //             {
+            //                 EditorGUILayout.LabelField("baz");
+            //             }
+            //             EditorGUI.indentLevel--;
+            //             EditorGUILayout.LabelField("bar");
+            //         }
+            //         EditorGUI.indentLevel--;
+            //         EditorGUILayout.LabelField("bar");
+            //     }
+            //     EditorGUI.indentLevel--;
+            //     EditorGUILayout.LabelField("bar");
+            // }
             if (showLightingBehaviour)
             {
                 materialEditor.ShaderProperty(_CullMode, new GUIContent("Cull Mode", "Culling backward/forward/no faces"));
@@ -196,14 +237,28 @@ public class ACLSInspector : ShaderGUI
                 EditorGUI.indentLevel++;
                 materialEditor.TextureScaleOffsetProperty(_DynamicShadowMask);
                 EditorGUI.indentLevel--;
+                materialEditor.ShaderProperty(_TweakHighColorOnShadow, new GUIContent("Specular Shadow Reactivity", "Affects Shine lobe's dimming in dynamic shadow. 0.0 is ignore dynamic shadows completely."));
+                materialEditor.ShaderProperty(_TweakMatCapOnShadow, new GUIContent("Specular Matcap Shadow Reactivity", "Specular matcaps visibility in dynamic shadow. This depends on context looking like it reacts to direct light or not. 0.0 ignores masking by dynamic shadows."));
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_directLightIntensity, new GUIContent("Direct Light Intensity", "Soft counter for overbright maps. Dim direct light sources and thus rely more on map ambient."));
                 ACLStyles.PartingLine();
-                materialEditor.ShaderProperty(_ToonRampLightSourceType_Backwards, new GUIContent("Diffuse Backwards Light Mode", "For pbr/npr effects on diffuse backface area.\nAll Light: Adds direct(with shadows) and ambient light together.\nNatural ambient: Closer to PBR, backface is only ambient light as there is realistically no direct light."));
+                materialEditor.ShaderProperty(_indirectGIDirectionalMix, new GUIContent("Indirect GI Directionality", "How Indirect light is sampled in the scene.\n0: Use a simple statistical color by object position.\n1: Use surface angle to light, which is PBR."));
+                EditorGUI.indentLevel++;
+                materialEditor.ShaderProperty(_indirectAlbedoMaxAveScale, new GUIContent("Static GI Max:Ave", "How overall Indirect light is sampled by object, abstracted to two sources \"Max\" or \"Average\" color, is used on Diffuse (Toon Ramping).\n1: Use Max color with Average intelligently.\n>1:Strongly switch to Average color as Max color scales brighter, which matches a few NPR shaders behaviour and darkness."));
+                materialEditor.ShaderProperty(_indirectGIBlur, new GUIContent("Angular GI Blur", "Default 1.\nRaise to blur Indirect GI and reduce distinctness of surface angle. Good for converting Indirect GI from PRB to NPR."));
+                EditorGUI.indentLevel--;
+                ACLStyles.PartingLine();
+                materialEditor.ShaderProperty(_ToonRampLightSourceType_Backwards, new GUIContent("Diffuse Backwards Light Mode", "For pbr/npr effects on diffuse backface area.\nAll Light: Adds direct(with shadows) and ambient light together.\nNatural ambient: Closer to PBR, backface is only Indirect(ambient) light as there is realistically no direct light."));
+                EditorGUI.indentLevel++;
+                materialEditor.ShaderProperty(_diffuseIndirectDirectSimMix, new GUIContent("Mix Direct Light", "Mix Direct Light into Backward Area by amount. A NPR helper to assist Core & Backward's Step/Feather setting's wrap distribution on Indirect light."));
+                EditorGUI.indentLevel--;
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_forceLightClamp, new GUIContent("Scene Light Clamping", "Hard Counter for overbright maps.\nHDR: When map has correctly setup \"Exposure High Definition Range (HDR)\": balancing brightness with post proccess in a realistic range.\nLimit: Prevention when map overblows your avatar colors or you glow. These maps typically attempted \"Low Definition Range (LDR)\" light levelling, were it assumes scene lights are never over 100% white and toon shaders may clamp to 100% as enforcement rule, and that only emission light goes over 100% which causes bloom."));
                 if (!(iscutoutAlpha)){
                     materialEditor.ShaderProperty(_BlendOp, new GUIContent("Additional Lights Blending", "How realtime Point and Spot lights combine color.\nRecommend MAX for NPR lighting that reduces overblowing color in none \"Exposure HDR\" maps (See Scene Light clamping for def).\nAdd: PBR,If you trust the maps lighting set for correct light adding.\nNot usable in Alpha Transparent due to Premultiply alpha blending needing ADD."));
+                }
+                else{
+                    EditorGUILayout.LabelField("[Disabled] Additional Lights Blending");
                 }
             }
 
@@ -294,8 +349,6 @@ public class ACLSInspector : ShaderGUI
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_HighColor, new GUIContent("Shine Tint", "Multiplies over Shines color intensity and tints. Can use to shut it off (use black), or overpower in HDR (for controlling Sharp and Soft mode)."));
                 materialEditor.ShaderProperty(_Is_SpecularToHighColor, new GUIContent("Specular Shine Type", "Override Shape and Soft brightness with Shine Tint.\nSharp: Toony\nSoft: Simple and subtle lode\nUnity: Follow Unity's PBR"));
-                ACLStyles.PartingLine();
-                materialEditor.ShaderProperty(_TweakHighColorOnShadow, new GUIContent("Shine Shadow Reactivity", "Affects Shine lobe's dimming in dynamic shadow. 0.0 is ignore dynamic shadows completely."));
             }
 
             showReflection = ACLStyles.ShurikenFoldout("Cubemap Reflection Behavour", showReflection);
@@ -383,7 +436,8 @@ public class ACLSInspector : ShaderGUI
                 EditorGUI.indentLevel--;
                 materialEditor.ShaderProperty(_Tweak_MatcapMaskLevel, new GUIContent("Tweak Mask", ""));
                 ACLStyles.PartingLine();
-                materialEditor.ShaderProperty(_TweakMatCapOnShadow, new GUIContent("Specular Shadows Reactivity", "Specular matcaps visibility in dynamic shadow. This depends on context looking like it reacts to direct light or not. 0.0 ignores masking by dynamic shadows."));
+                materialEditor.ShaderProperty(_McDiffAlbedoMix, new GUIContent("Diffuse Albedo Mix", "How much of diffuse texture to mix in diffuse matcap."));
+
             }
 
             showEmission = ACLStyles.ShurikenFoldout("Emission", showEmission);
@@ -400,6 +454,9 @@ public class ACLSInspector : ShaderGUI
                 EditorGUI.indentLevel++;
                 materialEditor.TextureScaleOffsetProperty(_Emissive_Tex);
                 EditorGUI.indentLevel--;
+                ACLStyles.PartingLine();
+                materialEditor.ShaderProperty(_emissiveUseMainTexA, new GUIContent("Mask from MainTex(A)", ""));
+                materialEditor.ShaderProperty(_emissiveUseMainTexCol, new GUIContent("Tint from MainTex(RGBA)", ""));
             }
 
             showAmbientOcclusionMaps = ACLStyles.ShurikenFoldout("General Effect Masks", showAmbientOcclusionMaps);

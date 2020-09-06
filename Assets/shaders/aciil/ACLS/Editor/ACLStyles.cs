@@ -10,7 +10,7 @@ using System.IO;
 [InitializeOnLoad]
 public class ACLStyles : MonoBehaviour
 {
-    public static string ver = "ACLS-Shader v" + "<color=#ff0000ff>1.1.1 </color>";
+    public static string ver = "ACLS-Shader v" + "<color=#ff0000ff>1.2 </color>";
     
     private static Rect DrawShuriken(string title, Vector2 contentOffset, int HeaderHeight)
     {
@@ -20,7 +20,20 @@ public class ACLStyles : MonoBehaviour
         style.fixedHeight = HeaderHeight;
         style.contentOffset = contentOffset;
         var rect = GUILayoutUtility.GetRect(16f, HeaderHeight, style);
+        GUI.Box(rect, title, style);
+        return rect;
+    }
 
+    //// indent support
+    private static Rect DrawShuriken(string title, Vector2 contentOffset, int HeaderHeight, int indent)
+    {
+        var style = new GUIStyle("ShurikenModuleTitle");
+        style.font = new GUIStyle(EditorStyles.boldLabel).font;
+        style.border = new RectOffset(15, 7, 4, 4);
+        style.fixedHeight = HeaderHeight;
+        style.contentOffset = contentOffset;
+        var rect = GUILayoutUtility.GetRect(16f, HeaderHeight, style);
+        rect = new Rect(rect.x + indent, rect.y, rect.width - indent, rect.height);
         GUI.Box(rect, title, style);
         return rect;
     }
@@ -44,6 +57,27 @@ public class ACLStyles : MonoBehaviour
         var rect = DrawShuriken(title, new Vector2(20f, -2f), 22);
         var e = Event.current;
         var toggleRect = new Rect(rect.x + 4f, rect.y + 2f, 13f, 13f);
+        if (e.type == EventType.Repaint)
+        {
+            EditorStyles.foldout.Draw(toggleRect, false, false, display, false);
+        }
+        if (e.type == EventType.MouseDown && rect.Contains(e.mousePosition))
+        {
+            display = !display;
+            e.Use();
+        }
+        return display;
+    }
+    
+    //// indent support
+    public static bool ShurikenFoldout(string title, bool display, int intent)
+    {
+        // var indentAmmount = (float)(typeof(EditorGUI).GetField("kIndentPerLevel").GetValue(null));//// reeeee it was private, WHY UNITY?
+        // Debug.log("blah " + (float)(typeof(EditorGUI).GetField("kIndentPerLevel").GetValue(null)));//// appears to NULL?
+        const int indentAmmount = 15;
+        var rect = DrawShuriken(title, new Vector2(20f, -2f), 22, intent * indentAmmount );
+        var e = Event.current;
+        var toggleRect = new Rect(rect.x + 4f , rect.y + 2f, 13f, 13f); //// the arrow
         if (e.type == EventType.Repaint)
         {
             EditorStyles.foldout.Draw(toggleRect, false, false, display, false);
