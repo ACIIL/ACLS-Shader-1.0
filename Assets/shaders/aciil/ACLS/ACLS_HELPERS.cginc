@@ -164,8 +164,8 @@
             x2 = unity_SHC.rgb * vC;
             return x1 + x2;
         }
-        ////
-        half3 SHEvalDirectL1(half4 normal)
+        //// get L1 by excluding the 4th array, which is L0
+        half3 SHEvalDirectL1(half3 normal)
         {
             half3 L0;
             L0.r = dot(unity_SHAr,normal);
@@ -305,7 +305,7 @@
             float4 toLightY = lightPosY - pos.y;
             float4 toLightZ = lightPosZ - pos.z;
             vertTo0 = float3(toLightX[0], toLightY[0], toLightZ[0]);
-            if ( any(vertTo0) != 0){
+            if ( any(vertTo0) && any(unityLightColor[0].rgb)){ //// black light check
             // if ( dot( vertTo0, vertTo0) != 0){
                 vertTo0 = normalize(vertTo0);
             } else {
@@ -757,11 +757,13 @@
             return      ((start*cos(theta)) + (RelativeVec*sin(theta)));
         }
 
-        //// Lyuma. (Silent?)
-        float stepButAntialiased(float x0, float x) {
-            float u = (x - x0);
-            float pixwid = fwidth(u);
-            return clamp(u / pixwid + 0.5, 0.0, 1.0);
+        //// get ratio of color A on B, weighted by a Scale
+        half ratioOfColors(half3 colorA, half3 colorB, half colorAMultiplier)
+        {
+            half cALum  = LinearRgbToLuminance_ac(colorA), cBLum = LinearRgbToLuminance_ac(colorB);
+            half cDiff  = ((cALum * colorAMultiplier) - cBLum);
+            half cSum   = cALum + cBLum;
+            return saturate(cDiff / cSum);
         }
 
 #endif

@@ -49,6 +49,7 @@ public class ACLSInspector : ShaderGUI
     MaterialProperty _Is_SpecularToHighColor = null;
     MaterialProperty _TweakHighColorOnShadow = null;
     // Reflection
+    MaterialProperty _useCubeMap = null;
     MaterialProperty _ENVMmode = null;
     MaterialProperty _ENVMix = null;
     MaterialProperty _envRoughness = null;
@@ -71,6 +72,7 @@ public class ACLSInspector : ShaderGUI
     MaterialProperty _RimLightAreaOffset = null;
     MaterialProperty _LightDirection_MaskOn = null;
     MaterialProperty _Tweak_LightDirection_MaskLevel = null;
+    MaterialProperty _rimLightLightsourceType = null;
     // Matcap
     MaterialProperty _MatCap = null;
     MaterialProperty _MatCapColMult = null;
@@ -102,6 +104,12 @@ public class ACLSInspector : ShaderGUI
     MaterialProperty _BlendOp = null;
     MaterialProperty _shadowCastMin_black = null;
     MaterialProperty _DynamicShadowMask = null;
+    MaterialProperty _shadowUseCustomRampNDL = null;
+    MaterialProperty _shadowNDLStep = null;
+    MaterialProperty _shadowNDLFeather = null;
+    MaterialProperty _shadowMaskPinch = null;
+    MaterialProperty _shadowSplits = null;
+
     MaterialProperty _indirectGIDirectionalMix = null;
     MaterialProperty _indirectGIBlur = null;
     // Light Map Shift Masks
@@ -237,14 +245,23 @@ public class ACLSInspector : ShaderGUI
                 EditorGUI.indentLevel++;
                 materialEditor.TextureScaleOffsetProperty(_DynamicShadowMask);
                 EditorGUI.indentLevel--;
+                materialEditor.ShaderProperty(_shadowUseCustomRampNDL, new GUIContent("Dynamic shadow Backface","Force natural PBR Dynamic Shadowcast when surface is away from Direct light."));
+                EditorGUI.indentLevel++;
+                materialEditor.ShaderProperty(_shadowNDLStep,new GUIContent("Step of Shadow","Angle Shadow Falloff begins.\nRecommend setting so complete shadow is perpendicular to light.\nDefault: 1. NPR: 0.52"));
+                materialEditor.ShaderProperty(_shadowNDLFeather,new GUIContent("Feather of Shadow","Softness of Dynamic shadow. Recommend adjesting so complete shadow is perpendicular to light.\nDefault: 0.5. NPR: 0.025"));
+                EditorGUI.indentLevel--;
+                ACLStyles.PartingLine();
+                materialEditor.ShaderProperty(_shadowSplits,new GUIContent("Shadow Steps","Use this for stylizing NPR by settings \"Steps\" of intensity."));
+                materialEditor.ShaderProperty(_shadowMaskPinch,new GUIContent("Shadow Pinch","\"Pinches\" the frindge zone were shadow transitions from nothing to complete.\nUse this to stylize shadow as NPR."));
+                ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_TweakHighColorOnShadow, new GUIContent("Specular Shadow Reactivity", "Affects Shine lobe's dimming in dynamic shadow. 0.0 is ignore dynamic shadows completely."));
                 materialEditor.ShaderProperty(_TweakMatCapOnShadow, new GUIContent("Specular Matcap Shadow Reactivity", "Specular matcaps visibility in dynamic shadow. This depends on context looking like it reacts to direct light or not. 0.0 ignores masking by dynamic shadows."));
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_directLightIntensity, new GUIContent("Direct Light Intensity", "Soft counter for overbright maps. Dim direct light sources and thus rely more on map ambient."));
+                materialEditor.ShaderProperty(_indirectAlbedoMaxAveScale, new GUIContent("Static GI Max:Ave", "How overall Indirect light is sampled by object, abstracted to two sources \"Max\" or \"Average\" color, is used on Diffuse (Toon Ramping).\n1: Use Max color with Average intelligently.\n>1:Strongly switch to Average color as Max color scales brighter, which matches a few NPR shaders behaviour and darkness."));
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_indirectGIDirectionalMix, new GUIContent("Indirect GI Directionality", "How Indirect light is sampled in the scene.\n0: Use a simple statistical color by object position.\n1: Use surface angle to light, which is PBR."));
                 EditorGUI.indentLevel++;
-                materialEditor.ShaderProperty(_indirectAlbedoMaxAveScale, new GUIContent("Static GI Max:Ave", "How overall Indirect light is sampled by object, abstracted to two sources \"Max\" or \"Average\" color, is used on Diffuse (Toon Ramping).\n1: Use Max color with Average intelligently.\n>1:Strongly switch to Average color as Max color scales brighter, which matches a few NPR shaders behaviour and darkness."));
                 materialEditor.ShaderProperty(_indirectGIBlur, new GUIContent("Angular GI Blur", "Default 1.\nRaise to blur Indirect GI and reduce distinctness of surface angle. Good for converting Indirect GI from PRB to NPR."));
                 EditorGUI.indentLevel--;
                 ACLStyles.PartingLine();
@@ -354,18 +371,20 @@ public class ACLSInspector : ShaderGUI
             showReflection = ACLStyles.ShurikenFoldout("Cubemap Reflection Behavour", showReflection);
             if (showReflection)
             {
+                materialEditor.ShaderProperty(_useCubeMap, new GUIContent("Use Cubemap", "Enable sampling of CubeMap."));
+                ACLStyles.PartingLine();
+                materialEditor.ShaderProperty(_ENVMmode, new GUIContent("Control Method", "Standard: Follows Standard Shader formula.\nOverride: You define Intensity and Roughness exactly and Intensitys follow roughness formula."));
+                EditorGUI.indentLevel++;
+                materialEditor.ShaderProperty(_ENVMix, new GUIContent("Intensity", "With Standard: Rescales value by this.\nWith Override: Replace the value from smoothness and ignores roughness mask (can use this to blur Cubemap into abstract tone)."));
+                materialEditor.ShaderProperty(_envRoughness, new GUIContent("Roughness", "For Override only."));
+                EditorGUI.indentLevel--;
+                ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_CubemapFallbackMode, new GUIContent("Fallback Mode", "Fallback Cubemap intensifies to average lighting.\nSmart: Enables when map gives nothing.\nAlways: Always override with custom."));
                 EditorGUI.indentLevel++;
                 materialEditor.TexturePropertySingleLine(new GUIContent("Fallback Cubemap", ""), _CubemapFallback);
                 // EditorGUI.indentLevel++;
                 // materialEditor.TextureScaleOffsetProperty(_CubemapFallback);
                 // // EditorGUI.indentLevel--;
-                EditorGUI.indentLevel--;
-                ACLStyles.PartingLine();
-                materialEditor.ShaderProperty(_ENVMmode, new GUIContent("Enable & Controls", "Cubemap visibility is off unless set here.\nStandard: Follows Standard Shader formula.\nOverride: You define Intensity and Roughness exactly."));
-                EditorGUI.indentLevel++;
-                materialEditor.ShaderProperty(_ENVMix, new GUIContent("Intensity", "With Standard: Rescales value by this.\nWith Override: Replace the value from smoothness and ignores roughness mask (can use this to blur Cubemap into abstract tone)."));
-                materialEditor.ShaderProperty(_envRoughness, new GUIContent("Roughness", "For Override only."));
                 EditorGUI.indentLevel--;
                 ACLStyles.PartingLine();
                 materialEditor.ShaderProperty(_EnvGrazeMix, new GUIContent("Use Natural Fresnel", "Natural unmaskable specular at sharp angles linked to Specular."));
@@ -395,9 +414,12 @@ public class ACLSInspector : ShaderGUI
                 materialEditor.ShaderProperty(_RimLight_InsideMask, new GUIContent("Sharpness", "Tampers falloff to a shaper edge. Good for toony lines."));
                 materialEditor.ShaderProperty(_RimLightAreaOffset, new GUIContent("Offset Wrap", "Shifts RimLights \"warp\". To control how the high and low of the rim curve appear."));
                 ACLStyles.PartingLine();
+                materialEditor.ShaderProperty(_rimLightLightsourceType, new GUIContent("Light Type: Diffuse:Cubemap", "Light Rim Lights like a surface diffuse or Cubemap. First good for subsurface effects and 2nd for metallic/smoothness effect."));
+                EditorGUI.indentLevel++;
                 materialEditor.ShaderProperty(_envOnRim, new GUIContent("Mask by Cubemap", "Masks Rim Lighting by Cubemap colors. Uses Cubemap settings (even its off as a specular effect). I recommend overriding Cubemap Fallback and Roughness settings when applying this."));
                 EditorGUI.indentLevel++;
                 materialEditor.ShaderProperty(_envOnRimColorize, new GUIContent("Colorize by Cubemap", "Give Cubemap Color to tint RimLight."));
+                EditorGUI.indentLevel--;
                 EditorGUI.indentLevel--;
             }
 

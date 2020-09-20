@@ -84,7 +84,11 @@
             uniform half _Set_SystemShadowsToBase;
             uniform half _Is_UseTweakHighColorOnShadow;
             uniform half _Tweak_SystemShadowsLevel;
-            uniform half _shaSatRatio;
+            uniform int _shadowUseCustomRampNDL;
+            uniform half _shadowNDLStep;
+            uniform half _shadowNDLFeather;
+            uniform half _shadowMaskPinch;
+            uniform int _shadowSplits;
 
             uniform half _highColTexSource;
             uniform half _Tweak_HighColorMaskLevel;
@@ -105,6 +109,7 @@
             uniform half _RimLight_InsideMask;
             uniform half _Tweak_LightDirection_MaskLevel;
 
+            uniform int _useCubeMap;
             uniform int _ENVMmode;
             uniform half _ENVMix;
             uniform half _envRoughness;
@@ -142,11 +147,6 @@
             uniform int _CubemapFallbackMode;
             uniform float _EnvGrazeMix;
             uniform int _EnvGrazeRimMix;
-            // uniform float _AO_shadePosFront_Offset;
-            // uniform float _AO_shadePosBack_Offset;
-            // uniform float _Occlusion_Spec;
-            // uniform float _Occlusion_Rim;
-            // uniform float _Occlusion_MatAdd;
             uniform int _ToonRampLightSourceType_Backwards;
             uniform half _diffuseIndirectDirectSimMix;
             uniform int _UseSpecularSystem;
@@ -161,6 +161,7 @@
             uniform half _indirectGIBlur;
             uniform half _emissiveUseMainTexA;
             uniform half _emissiveUseMainTexCol;
+            uniform half _rimLightLightsourceType;
 
 
 
@@ -284,8 +285,8 @@
             {
                 // UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
                 UNITY_SETUP_INSTANCE_ID(i);
-
-                int isBackFace          = !frontFace;
+                bool isAmbientOnlyMap   = !(any(_LightColor0.rgb));
+                bool isBackFace         = !frontFace;
                 i.wNormal               = normalize( i.wNormal);
                 if(isBackFace) { //// flip normal for back faces.
                     i.wNormal = -i.wNormal;
@@ -473,30 +474,60 @@
                 // float lightAtten = LIGHT_ATTENUATION(i);
                 // UNITY_LIGHT_ATTENUATION(lightAtten, i, i.worldPos.xyz);
                 UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
-                if ( !(any(_LightColor0.rgb))) /// lightAtten is random in scenes without directional lights. Using this raw is unstable so we correct when lacking light color.
+                if (isAmbientOnlyMap) /// lightAtten is random in scenes without directional lights. Using this raw is unstable so we correct when lacking light color.
                 {
                     lightAtten = 1;
                 }
-                float shadowFullTrue = lightAtten;
-                lightAtten = smoothstep(0, 0.6, lightAtten);
                 float shadowAtten = lightAtten;
             #else
                 // float lightAtten = LIGHT_ATTENUATION(i);
                 // UNITY_LIGHT_ATTENUATION(lightAtten, i, i.worldPos.xyz);
                 UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
                 float shadowAtten = UNITY_SHADOW_ATTENUATION(i, i.worldPos.xyz);
-                float shadowFullTrue = shadowAtten;
-                shadowAtten = smoothstep(0, 0.6, shadowAtten);
             #endif
-                //// regraph shadow fridge
-                // float nShadowAtten  = 1 - shadowAtten;
-                // shadowAtten         = ( (-(nShadowAtten * nShadowAtten) + 1));
+                shadowAtten = smoothstep(0, 0.6, shadowAtten); //// clean up artifacts
+                if (_shadowUseCustomRampNDL) //// nDl shadow
+                {
+                    half nDlSha = dot(dirNormalToonRamp, dirLight) *.5+.5;
+                    nDlSha      = StepFeatherRemap(nDlSha, _shadowNDLStep, _shadowNDLFeather);
+                    shadowAtten = (shadowAtten * nDlSha);
+                    // shadowAtten = min(shadowAtten, nDlSha);
+                }
+                if (_shadowMaskPinch || _shadowSplits)
+                {
+                    shadowAtten = smoothstep(0, (1 - _shadowMaskPinch), shadowAtten);
+                }
+                if (_shadowSplits)
+                {
+                    shadowAtten = round(shadowAtten * _shadowSplits) / _shadowSplits;
+                }
+                // return float4(shadowAtten.xxx,1);
                 float attenRamp = shadowAtten;
                 //// shadow influance for masking some effects.
                 float shadowMask, shadowMaskSharp;
                 shadowMaskSharp = smoothstep(min(_LightShadowData.x, 1), min(1,_LightShadowData.x+0.1), attenRamp);
                 // shadowMaskSharp = smoothstep(min(_LightShadowData.x, 1), min(1,_LightShadowData.x+0.1), shadowAtten*(shadowAtten+0.001));
                 shadowMask  = max(_LightShadowData.x, shadowMaskSharp);
+
+
+
+//// setup shadow darkness control
+                //// setup dynamic shadow limits
+                float shadowAttenuation = shadowAtten;
+                float shadowBlackness = 0;
+                float shadowMinPotential = 0;
+                UNITY_BRANCH
+                if ( (_shadowCastMin_black) || !(_DynamicShadowMask_TexelSize.z <16)) 
+                {
+                    float dynamicShadowMask = _DynamicShadowMask.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
+                    float tmp       = max(_shadowCastMin_black, dynamicShadowMask);
+                    shadowBlackness = saturate( (shadowAttenuation + tmp)/(1 - tmp));
+                    // shadowMinPotential  = saturate( (_LightShadowData.x + tmp)/(1 - tmp));
+                } else
+                {
+                    shadowBlackness = shadowAttenuation;
+                }
+                // return float4(shadowBlackness.xxx,1);
 
 
 
@@ -568,43 +599,27 @@
                 shadeRamp_n2        = 1 + shadeRamp_n2 * -shadowTex_2 / ( _1st2nd_Shades_Feather );
                 shadeRamp_n2        = saturate(shadeRamp_n2);
                 // return float4(shadeRamp_n2.xxx,1);
-//// end toon ramp mask setup
 
 
 
-//// setup shadow darkness control
-                //// setup dynamic shadow limits
-                float shadowAttenuation = shadowAtten;
-                float shadowBlackness = 0;
-                float shadowMinPotential = 0;
-                UNITY_BRANCH
-                if ( (_shadowCastMin_black) || !(_DynamicShadowMask_TexelSize.z <16)) 
-                {
-                    float dynamicShadowMask = _DynamicShadowMask.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
-                    float tmp       = max(_shadowCastMin_black, dynamicShadowMask);
-                    shadowBlackness = saturate( (shadowAttenuation + tmp)/(1 - tmp));
-                    // shadowMinPotential  = saturate( (_LightShadowData.x + tmp)/(1 - tmp));
-                } else
-                {
-                    shadowBlackness = shadowAttenuation;
-                }
-                // return float4(shadowBlackness.xxx,1);
-
-
-
-//// collect scene light sources
+//// collect scene light sources. sLight
 #ifdef UNITY_PASS_FORWARDBASE
+                //// prepare cubemap albedo support lighting
+                half3 refGIcol  = shadeSH9LinearAndWhole(float4(normalize(i.wNormal + dEnv.dirViewReflection),1)); //// gi light at a weird angle
+                half3 colGIGray = LinearRgbToLuminance_ac(refGIcol);
+                // return float4(dot(normalize(i.wNormal + dEnv.dirViewReflection),dirLight).xxx*.5+.5,1);
+                //// get vertex lighting
+                half3 vertexLit = i.vertexLighting;
                 //// build indirect light source
-                float3 lightIndirectColAve  = DecodeLightProbe_average();   //// average light from raw L0
-                float3 lightIndirectColMax  = SHEvalDirectL1(float4(i.dirGI,1));    //// direct most light raw L1
-                float3 lightIndirectColStatic = 0, lightIndirectColDir = 0;
-                if ((_indirectGIDirectionalMix) < 1)
+                half3 lightIndirectColAve   = DecodeLightProbe_average();   //// L0 Average light
+                half3 lightIndirectColL1    = max(0, SHEvalDirectL1(normalize(i.dirGI)));    //// L1 raw. Add to L0 as max color of GI
+                half3 lightIndirectColStatic = 0, lightIndirectColDir = 0;
+                // if ((_indirectGIDirectionalMix) < 1)
+                if (true)
                 {
-                    half GI_Max = LinearRgbToLuminance_ac(lightIndirectColMax), GI_Ave = LinearRgbToLuminance_ac(lightIndirectColAve);
-                    half GI_MaxAveDif = ((GI_Max * _indirectAlbedoMaxAveScale) - GI_Ave);
-                    half GI_MaxAveSum = GI_Max + GI_Ave;
-                    half GI_MaxAveRatio = saturate(GI_MaxAveDif / GI_MaxAveSum);
-                    lightIndirectColStatic   = lerp(lightIndirectColMax, lightIndirectColAve, GI_MaxAveRatio);
+                    half3 stackIndirectMaxL0L1 = lightIndirectColL1 + lightIndirectColAve;
+                    half ratioCols = ratioOfColors(stackIndirectMaxL0L1, lightIndirectColAve, _indirectAlbedoMaxAveScale);
+                    lightIndirectColStatic  = lerp(stackIndirectMaxL0L1, lightIndirectColAve, ratioCols);
                 }
                 if (_indirectGIDirectionalMix > 0)
                 {
@@ -612,31 +627,127 @@
                     lightIndirectColDir = max(0, ShadeSH9_ac(indirectGIDirectionBlur)) / (indirectGIDirectionBlur.w);
                     // float3 lightIndirectColAngle = shadeSH9LinearAndWhole(float4(i.wNormal,1));  //// not blur adaptiable without intense math
                 }
-                float3 lightIndirectCol = lerp(lightIndirectColStatic, lightIndirectColDir, _indirectGIDirectionalMix);
+                half3 lightIndirectCol  = lerp(lightIndirectColStatic, lightIndirectColDir, _indirectGIDirectionalMix);
+                // return float4(lightIndirectCol,1);
+
                 //// build direct light source
-                float3 lightDirect      = _LightColor0.rgb;
-                float3 lightDirectSave  = lightDirect;
+                half3 lightDirect   = _LightColor0.rgb;
                 //// build ambient LUM for reflection types
-                float lightAverageLum   = LinearRgbToLuminance_ac((lightDirectSave * _LightShadowData.x * .5) + lightDirectSave + (lightIndirectCol)) * .34;
-                float3 vertexLit        = i.vertexLighting;
-                //// out light source by types
-                float3 lightDirectSource    = (mixColorsMaxAve(lightIndirectColMax, lightDirect) + vertexLit) * _directLightIntensity;
-                float3 lightIndirectSource  = (lightIndirectCol + vertexLit);
+                //// build indirect light
+                half3 lightIndirectSource  = (lightIndirectCol + vertexLit);
+                //// build direct light
+                half3 lightDirectSource = 0;
+if (isAmbientOnlyMap) //// this setup sucks for preserving Direct light effects
+{
+    if (any(lightIndirectColL1)) //// L1 in pure ambient maps is black. Recover by spliting indirect energy.
+    {
+        lightDirectSource   = lightIndirectColL1;
+    }
+    else
+    {
+        lightDirectSource   = lightIndirectColAve * .2;
+        lightIndirectCol    = lightIndirectColAve * .7;
+    }
+}
+else
+{
+    lightDirectSource = lightDirect;
+}
+                lightDirectSource = (lightDirectSource + vertexLit) * _directLightIntensity;
+                // float3 lightDirectSource    = (mixColorsMaxAve(lightIndirectColL1, lightDirect) + vertexLit) * _directLightIntensity;
+
 #elif UNITY_PASS_FORWARDADD
-                float3 lightIndirectColAve  = 0;
-                float3 lightIndirectColAngle = 0;
-                float3 lightDirect          = _LightColor0.rgb;
-                float3 lightDirectSave      = lightDirect;
-                lightDirect                 *= lightAtten;
-                float lightAverageLum       = lightAtten * LinearRgbToLuminance_ac((lightDirectSave * _LightShadowData.x * .5) + lightDirectSave) * .5;
-                // float colSceneAmbientLum    = LinearRgbToLuminance_ac(lightDirect);
-                // float colorIntSignal    = 0;
+                float3 lightDirect      = _LightColor0.rgb;
+                lightDirect             *= lightAtten;
                 //// out light source by types
                 float3 lightDirectSource    = lightDirect * _directLightIntensity;
                 float3 lightIndirectSource  = 0;
 #endif
 
+//// simple light systems reused. slsys
+                half3 lightSimpleSystem = (lightDirectSource * shadowBlackness) + lightIndirectSource;
+                lightDirect             = _LightColor0.rgb;
+#ifdef UNITY_PASS_FORWARDBASE
+                half3 cubeMapAveAlbedo  = ((lightDirect * _LightShadowData.x * .5) + lightDirect + lightIndirectCol) * .34;
+                half lightAverageLum    = LinearRgbToLuminance_ac((lightDirect * _LightShadowData.x * .5) + lightDirect + (lightIndirectCol)) * .34;
+#elif UNITY_PASS_FORWARDADD
+                half3 cubeMapAveAlbedo  = ((lightDirect * _LightShadowData.x * .5) + lightDirect) * .5 * lightAtten;
+                half lightAverageLum    = LinearRgbToLuminance_ac((lightDirect * _LightShadowData.x * .5) + lightDirect) * .5 * lightAtten;
+#endif
 
+
+
+
+
+//// toon ramp color setup
+                //// Albedo variable remap zone of pain.
+                // get albedo samples
+                half3 albedoCol_1      = mainTex.rgb;
+                half3 albedoCol_2      = shadeMapTex_1.rgb;
+                half3 albedoCol_3      = shadeMapTex_2.rgb;
+                //
+                half3 shadeCol_1       = _0_ShadeColor.rgb     * _Color.rgb;
+                half3 shadeCol_2       = _1st_ShadeColor.rgb   * _Color.rgb;
+                half3 shadeCol_3       = _2nd_ShadeColor.rgb   * _Color.rgb;
+
+//// Toon albedo and ramp mixer
+                half3 toonMix_bright_albedo    = lerp(albedoCol_1, albedoCol_2, shadeRamp_n1);
+                half3 toonMix_dark_albedo      = lerp(albedoCol_2, albedoCol_3, shadeRamp_n2);
+                //// mix scene colors per ramp region
+                // if (isAmbientOnlyMap) //// overbright correction. Indirect was put in Direct light and thus 2x albedo
+                // {
+                // }
+                if (_ToonRampLightSourceType_Backwards > 0) //// diffuse lighting: backface area is part of shadow thus indirect light only
+                {
+                    half n2ShadowMask = 1 - min((1-shadeRamp_n2), shadowBlackness); 
+                    shadeRamp_n2 = n2ShadowMask; //// cover Backward Area with dynamic shadow mask
+
+                    lightSimpleSystem = (lightDirectSource * (1-shadeRamp_n2)) + lightIndirectSource; //// match backface-is-dark mode
+                    
+                    half3 lDSAdjest = lightDirectSource;
+                    // if (isAmbientOnlyMap) //// reducing an albedo surplus as direct came from indirect
+                    // {
+                    //     lDSAdjest *= .5;
+                    // }
+                    half3 lightDirectSim = (lDSAdjest * shadowBlackness) + lightIndirectSource;
+                    shadeCol_1 *= lightDirectSim;
+                    shadeCol_2 *= lightDirectSim;
+                    shadeCol_3 *= lerp(lightIndirectSource, lightDirectSim, _diffuseIndirectDirectSimMix);
+                } else //// diffuse lighting: surface uses entire albedo
+                {
+                    half3 lDSAdjest = lightDirectSource;
+                    // if (isAmbientOnlyMap) //// reducing an albedo surplus as direct came from indirect
+                    // {
+                    //     lDSAdjest *= .5;
+                    // }
+                    half3 lightDirectSim = (lDSAdjest * shadowBlackness) + lightIndirectSource;
+                    half3 lSSAdjest = lightDirectSim;
+                    // if (isAmbientOnlyMap) //// removing an albedo surplus as direct came from indirect
+                    // {
+                    //     lSSAdjest *= .5;
+                    // }
+                    shadeCol_1 *= lSSAdjest;
+                    shadeCol_2 *= lSSAdjest;
+                    shadeCol_3 *= lSSAdjest;
+                }
+                half3 toonMix_bright_mix   = lerp(shadeCol_1, shadeCol_2, shadeRamp_n1);
+                half3 toonMix_dark_mix     = lerp(shadeCol_2, shadeCol_3, shadeRamp_n2);
+                
+                // return float4(shadeRamp_n1, shadeRamp_n2,0,1);
+                half diff_GSF  = 0;
+                UNITY_BRANCH
+                if (_Diff_GSF_01)
+                {
+                    diff_GSF    = -GSF_Diff_ac(dDiff.ndl, dDiff.ndv, dDiff.ldhS) + 1;
+                    diff_GSF    = StepFeatherRemap(diff_GSF, _DiffGSF_Offset, _DiffGSF_Feather);
+                } 
+                else {
+                    diff_GSF  = min(shadeRamp_n1, shadeRamp_n2);
+                }
+                half3 shadeColor_albedo    = lerp(toonMix_bright_albedo, toonMix_dark_albedo, diff_GSF);//// textures
+                half3 shadeColor_mix       = lerp(toonMix_bright_mix, toonMix_dark_mix, diff_GSF);//// ramp
+                half3 shadeColor           = shadeColor_albedo * shadeColor_mix;//// mix ramp
+                // return float4(shadeColor,1);
 
 //// matcap
                 float matcapMask    = 1;
@@ -685,60 +796,6 @@
                 else {
                     matcapMask      = 0;
                 }
-
-
-
-
-
-//// toon ramp color setup
-                //// Albedo variable remap zone of pain.
-                // get albedo samples
-                float3 albedoCol_1      = mainTex.rgb;
-                float3 albedoCol_2      = shadeMapTex_1.rgb;
-                float3 albedoCol_3      = shadeMapTex_2.rgb;
-                //
-                float3 shadeCol_1       = _0_ShadeColor.rgb     * _Color.rgb;
-                float3 shadeCol_2       = _1st_ShadeColor.rgb   * _Color.rgb;
-                float3 shadeCol_3       = _2nd_ShadeColor.rgb   * _Color.rgb;
-
-//// Toon albedo and ramp mixer
-                float3 toonMix_bright_albedo    = lerp(albedoCol_1, albedoCol_2, shadeRamp_n1);
-                float3 toonMix_dark_albedo      = lerp(albedoCol_2, albedoCol_3, shadeRamp_n2);
-                //// mix scene colors per ramp region
-                //// how ambient light mixes affects both feedin of shadow attenuation and lighting selection
-                if (_ToonRampLightSourceType_Backwards > 0) //// diffuse lighting: backface ramp is part of shadow
-                {
-                    float n2ShadowMask = 1 - min((1-shadeRamp_n2), shadowBlackness);
-                    shadeRamp_n2 = n2ShadowMask; //// make Backward Area be forced Dynamic shadow from its wrap
-                    float3 lightDirectSim = (lightDirectSource * shadowBlackness) + lightIndirectSource;
-                    shadeCol_1 *= lightDirectSim;
-                    shadeCol_2 *= lightDirectSim;
-                    shadeCol_3 *= lerp(lightIndirectSource, lightDirectSim, _diffuseIndirectDirectSimMix);
-                } else //// diffuse lighting: shadow is independent of ramp
-                {
-                    float3 lightDirectSim = (lightDirectSource * shadowBlackness) + lightIndirectSource;
-                    shadeCol_1 *= lightDirectSim;
-                    shadeCol_2 *= lightDirectSim;
-                    shadeCol_3 *= lightDirectSim;
-                }
-                float3 toonMix_bright_mix       = lerp(shadeCol_1, shadeCol_2, shadeRamp_n1);
-                float3 toonMix_dark_mix         = lerp(shadeCol_2, shadeCol_3, shadeRamp_n2);
-                
-                // return float4(shadeRamp_n1, shadeRamp_n2,0,1);
-                float diff_GSF  = 0;
-                UNITY_BRANCH
-                if (_Diff_GSF_01)
-                {
-                    diff_GSF    = -GSF_Diff_ac(dDiff.ndl, dDiff.ndv, dDiff.ldhS) + 1;
-                    diff_GSF    = StepFeatherRemap(diff_GSF, _DiffGSF_Offset, _DiffGSF_Feather);
-                } 
-                else {
-                    diff_GSF  = min(shadeRamp_n1, shadeRamp_n2);
-                }
-                float3 shadeColor_albedo    = lerp(toonMix_bright_albedo, toonMix_dark_albedo, diff_GSF);//// textures
-                float3 shadeColor_mix       = lerp(toonMix_bright_mix, toonMix_dark_mix, diff_GSF);//// ramp
-                float3 shadeColor           = shadeColor_albedo * shadeColor_mix;//// mix ramp
-                // return float4(shadeColor,1);
 
 
 
@@ -821,13 +878,11 @@
 
 //// Env Reflection
                 float3 colEnv           = 0;
-                float3 envOntoRimSetup  = 1;
+                float3 envOntoRimSetup  = 0;
                 float envRimMask        = 0;
-                float colEnvMask        = 1;
-                float colGIGray         = 0;
-                float LODrange;
                 UNITY_BRANCH
-                if ((_ENVMmode) || (_envOnRim > 0))
+                // if ((_ENVMmode) || ((_envOnRim) && (_rimLightLightsourceType)))
+                if (_useCubeMap)
                 {
                     float3 reflDir0 = BoxProjection(dEnv.dirViewReflection, i.worldPos, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
                     float pRoughnessFix;
@@ -876,8 +931,7 @@
                             envLOD  = perceptualRoughnessToMipmapLevel_ac(pRoughnessFix, lodMax);
                             float4 colEnvBkup   = UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(_CubemapFallback, unity_SpecCube0, reflDir0, envLOD);
                             colEnvBkup.rgb  = DecodeHDR(colEnvBkup, _CubemapFallback_HDR);
-                            colEnv  = colEnvBkup;
-                            colEnv  *= lightAverageLum;
+                            colEnv  = colEnvBkup * cubeMapAveAlbedo;
                         }
                     }
                     //// natural grazing rim mask
@@ -886,13 +940,9 @@
                         envRimMask = Pow4_ac(1 - dEnv.ndv);
                     }
                     //// env on rim lights
-                    float colEnvGray    = LinearRgbToLuminance_ac(colEnv);
-                    envOntoRimSetup = lerp(colEnvGray, colEnv, _envOnRimColorize); 
-                    envOntoRimSetup = lerp(1, envOntoRimSetup, _envOnRim);
-
-                    //// gi light at a weird angle
-                    float3 refGIcol = shadeSH9LinearAndWhole(float4(normalize(i.wNormal + dEnv.dirViewReflection),1));
-                    colGIGray       = LinearRgbToLuminance_ac(refGIcol);
+                    // float colEnvGray    = LinearRgbToLuminance_ac(colEnv);
+                    // envOntoRimSetup     = lerp(colEnvGray, colEnv, _envOnRimColorize); 
+                    envOntoRimSetup = colEnv;
                 }
 
 
@@ -995,19 +1045,17 @@
                 colDiffuse      = shadeColor;
                 if (_MatCap){ //// gets scene lighting from toon ramp chain
                     {
-                        float3 lightDirectSim = (shadowBlackness * lightDirectSource) + lightIndirectSource;
-                        // float3 lightDirectSim = (shadowBlackness * lightDirectSource) + lightIndirectSource;
                         float3 diffMixMC = 1;
                         if (_McDiffAlbedoMix)
                         {
-                            diffMixMC = lerp(1, colDiffuse, _McDiffAlbedoMix);
+                            diffMixMC = lerp(1, shadeColor_albedo, _McDiffAlbedoMix);
                         }
-                        colDiffuse = lerp(colDiffuse, (colDiffuse + (diffMixMC * (lightDirectSim * mcMixMult.rgb * _MatCapColMult.rgb * _MatCapColMult.a))), matcapMask);
+                        colDiffuse = lerp(colDiffuse, (colDiffuse + (diffMixMC * lightSimpleSystem * mcMixMult.rgb * _MatCapColMult.rgb) * (_MatCapColMult.a)), matcapMask);
                     }
                 }
 
 //// fernel
-                float3 rimMixer = 0;
+                float3 rimMixer = 0; //// get effects
                 if (_RimLight)
                 {
                     rimMixer    += rimLightCol * rimLightMask;
@@ -1016,16 +1064,22 @@
                 {
                     rimMixer    += rimLightApCol * rimlightApMask;
                 }
-                colFernel   = rimMixer;
-                colFernel   *= (lightDirectSource * shadowBlackness) + lightIndirectSource; //// light is lazy combined
-                colFernel   *= envOntoRimSetup;
+                colFernel   = rimMixer; //// get lighting
+                half3 colFernelLight = 1;
+                if (true) //// fake function incapsulation
+                {
+                    colFernelLight = lerp(cubeMapAveAlbedo, envOntoRimSetup, _envOnRim); //// get cubemap setup
+                    colFernelLight = lerp(LinearRgbToLuminance_ac(colFernelLight), colFernelLight, _envOnRimColorize); //// cubemap color
+                    colFernelLight = lerp(lightSimpleSystem, colFernelLight, _rimLightLightsourceType); //// select light system
+                }
+                colFernel *= colFernelLight;
+                // colFernel   *= (lightDirectSource * shadowBlackness) + lightIndirectSource; //// light source is lazy combined
                 
                 
 //// specularity
                 colSpecular = specMaskSetup_1 * aoSpecularM;
                 colSpecular *= FresnelTerm_ac(highColorTotalCol_1, dSpec.ldh);
-                colSpecular *= (lightDirectSource); //// specular shadow mask is in effect's stack
-                // colSpecular *= (lightDirectSource * shadowBlackness) + lightIndirectSource; //// specular shadow mask is in effect's stack
+                colSpecular *= (lightDirectSource); //// light source is Direct light
                 // return float4(colSpecular,1);
 
 
@@ -1061,7 +1115,9 @@
 #endif //// UNITY_PASS_FORWARDBASE
                 //// spec matcap
                 if (_MatCap){
-                    colReflect      += mcMixAdd * _MatCapColAdd.rgb * specularMatcapDes * lightAverageLum * _MatCapColAdd.a * matcapShaMask * aoSpecularM;
+                    half3 mcSpecSourceLight = lerp(lightAverageLum, cubeMapAveAlbedo, 1); //// _MatcapSpecSourceLightMix
+                    colReflect      += (mcMixAdd * _MatCapColAdd.rgb * mcSpecSourceLight) * (_MatCapColAdd.a * matcapShaMask * aoSpecularM);\
+                    // colReflect      += mcMixAdd * _MatCapColAdd.rgb * specularMatcapDes * cubeMapAveAlbedo * _MatCapColAdd.a * matcapShaMask * aoSpecularM;
                 }
 
 
@@ -1069,8 +1125,7 @@
                 //// energy conservation
                 float3 colDiffuseTerms      = (colDiffuse);
                 float3 colSpecularTerms     = colSpecular + colFernel + colReflect;
-                // float3 colSpecularTerms     = (colSpecular + colFernel) * lightDirectSource + colReflect;
-                //// solve oneMinusReflectivity again. Might be use for transparancy
+                //// solve oneMinusReflectivity for transparancy
                 colDiffuseTerms             = EnergyConservationBetweenDiffuseAndSpecular_ac(
                                                 _Is_BlendAddToHiColor, colDiffuseTerms, specularSrcCol, oneMinusReflectivity); /// oneMinusReflectivity unused
 
@@ -1096,7 +1151,7 @@
                 fragColor.rgb   = max(0, fragColor);
                 if (_forceLightClamp)
                 {
-                    float sceneIntensity = LinearRgbToLuminance_ac(lightDirectSource + lightIndirectSource);
+                    float sceneIntensity = LinearRgbToLuminance_ac(lightDirectSource + lightIndirectSource); //// grab all light at max potencial
                     if (sceneIntensity > 1.0) //// bloom defaults at > 1.1
                     {
                         fragColor.rgb = fragColor.rgb / sceneIntensity;

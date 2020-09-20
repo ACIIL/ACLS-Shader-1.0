@@ -46,7 +46,8 @@ Shader "ACiiL/toon/ACLS_Toon_Solid" {
         _TweakHighColorOnShadow("Spec shadow mask", Range(0, 1))    = 0.5
 
         // [Header(Reflection)]
-        [Enum(None,0,Standard,1,Override,2)] _ENVMmode("Reflection Setup:",Int)             = 0
+        [ToggleUI] _useCubeMap("_useCubeMap",Int) = 0
+        [Enum(Standard,1,Override,2)] _ENVMmode("Reflection Setup:",Int) = 1
         _ENVMix("--Reflection mix",Range(0,1))                                              = 1
         _envRoughness("--Reflection smoothness", Range(0, 1))                               = 0.34
         [Enum(Off,0,Smart,1,Replace,2)] _CubemapFallbackMode("Fallback mix mode:",Int)      = 0
@@ -56,6 +57,7 @@ Shader "ACiiL/toon/ACLS_Toon_Solid" {
         [Enum(Off,0,On,1)] _EnvGrazeRimMix("Graze RimLights Mask mix",Int)                  = 0
         _envOnRim("Mask on rimLights", Range(0,1))                                          = 0.25
         _envOnRimColorize("--Colorize rim lights", Range(0,1))                              = 0
+        _rimLightLightsourceType("_rimLightLightsourceType", Range(0,1)) = 0
 
         // [Header(Rimlights)]
         [Enum(Off,0,Add,1)] _RimLight("RimLight blend",Int) = 1
@@ -103,10 +105,15 @@ Shader "ACiiL/toon/ACLS_Toon_Solid" {
         _indirectAlbedoMaxAveScale("Indirect albedo maxAve Scale",Range(0.5,2)) = 1
         _indirectGIDirectionalMix("Indirect GI dir mix",Range(0,1)) = 0
         _indirectGIBlur("Indirect GI blur",Range(.5,4)) = 1
-        [Enum(HDR,0,Limit,1)] _forceLightClamp("Force scene Lights Clamp",Int) = 0
-        [Enum(Real ADD,0,Safe MAX,4)] _BlendOp("Additional lights blending", Float) = 4
-        _shadowCastMin_black("Dynamic Shadow Removal",Range(0.0,1.0))          = 0.1
+        [Enum(HDR,0,Limit,1)] _forceLightClamp("Force scene Lights Clamp",Int) = 1
+        [Enum(Real ADD,0,Safe MAX,4)] _BlendOp("Additional lights blending", Float) = 0
+        _shadowCastMin_black("Dynamic Shadow Removal",Range(0.0,1.0)) = 0.34
         [NoScaleOffset] _DynamicShadowMask("Dynamic Shadow mask",2D)         = "black" {}
+        [ToggleUI] _shadowUseCustomRampNDL("_shadowUseCustomRampNDL",Int) = 0
+        _shadowNDLStep("_shadowNDLStep",Range(0,1)) = 0.52
+        _shadowNDLFeather("_shadowNDLFeather",Range(0,1)) = 0.025
+        _shadowMaskPinch("_shadowMaskPinch",Range(0,1)) = 0
+        [IntRange] _shadowSplits("_shadowMaskPinch",Range(0,10)) = 0
 
         // [Header(Light Map Shift Masks)]
         [Enum(Off,0,On,1,Use Vertex Color Red,2)] _UseLightMap("Light Map mode", Int)   = 0

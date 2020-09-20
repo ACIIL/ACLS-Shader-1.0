@@ -10,7 +10,7 @@ using System.IO;
 [InitializeOnLoad]
 public class ACLStyles : MonoBehaviour
 {
-    public static string ver = "ACLS-Shader v" + "<color=#ff0000ff>1.2 </color>";
+    public static string ver = "ACLS-Shader v" + "<color=#ff0000ff>1.3 </color>";
     
     private static Rect DrawShuriken(string title, Vector2 contentOffset, int HeaderHeight)
     {
@@ -167,14 +167,18 @@ public class ACLStyles : MonoBehaviour
 
     public static void wikiButton(int Width, int Height)
     {
-        GUILayout.BeginHorizontal();
-        GUILayout.FlexibleSpace();
         if (GUILayout.Button("Show Wiki", GUILayout.Width(Width), GUILayout.Height(Height)))
         {
             Application.OpenURL("https://github.com/ACIIL/ACLS-Shader/wiki");
         }
-        GUILayout.FlexibleSpace();
-        GUILayout.EndHorizontal();
+    }
+
+    public static void linksButton(int Width, int Height)
+    {
+        if (GUILayout.Button("Links", GUILayout.Width(Width), GUILayout.Height(Height)))
+        {
+            Application.OpenURL("https://github.com/ACIIL/ACLS-Shader/wiki/Links");
+        }
     }
 
     public static void ShurikenHeader(string title)
@@ -201,6 +205,11 @@ public class ACLStyles : MonoBehaviour
         ACLStyles.gitSourcebutton(100, 30);
         GUILayout.FlexibleSpace();
         EditorGUILayout.EndHorizontal();
+        EditorGUILayout.BeginHorizontal();
+        GUILayout.FlexibleSpace();
         ACLStyles.wikiButton(100,30);
+        ACLStyles.linksButton(100,30);
+        GUILayout.FlexibleSpace();
+        EditorGUILayout.EndHorizontal();
     }
 }
