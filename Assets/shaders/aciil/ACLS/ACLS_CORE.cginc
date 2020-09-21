@@ -702,7 +702,7 @@ else
                     half n2ShadowMask = 1 - min((1-shadeRamp_n2), shadowBlackness); 
                     shadeRamp_n2 = n2ShadowMask; //// cover Backward Area with dynamic shadow mask
 
-                    lightSimpleSystem = (lightDirectSource * (1-shadeRamp_n2)) + lightIndirectSource; //// match backface-is-dark mode
+                    // lightSimpleSystem = (lightDirectSource * (1-shadeRamp_n2)) + lightIndirectSource; //// match backface-is-dark mode
                     
                     half3 lDSAdjest = lightDirectSource;
                     // if (isAmbientOnlyMap) //// reducing an albedo surplus as direct came from indirect
