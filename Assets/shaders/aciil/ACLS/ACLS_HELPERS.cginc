@@ -7,6 +7,14 @@
 #include "UnityStandardBRDF.cginc"
 // #include "UnityBuiltin3xTreeLibrary.cginc"
 // #include "UnityPBSLighting.cginc"
+        float2 UVPick01(float4 uv01, int side)
+        {
+            return (side) ? uv01.zw : uv01.xy;
+        }
+        float2 UVPick01(float4 uv01)
+        {
+            return UVPick01(uv01, false);
+        }
 
         struct UV_DD { //// holds UV and derivatives for conservative tex lookups
             float2 uv;
@@ -90,10 +98,37 @@
             return coverage;
         }
 
-        //// raw ambient color by direction
-        float3 DecodeLightProbe( float4 N ){
-            return ShadeSH9(N);
-        }
+        //// My manual split of Unity's light attenuation (falloff mask) from shadow attenuation (shadow mask).
+        //// These maks should honestly be seperated for the control & NPR usage it enables!
+        //// Redefine UNITY_LIGHT_ATTENUATION without shadow multiply from AutoLight.cginc
+        #ifdef POINT
+        #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) \
+            unityShadowCoord3 lightCoord    = mul(unity_WorldToLight, unityShadowCoord4(worldPos, 1)).xyz; \
+            fixed destName  = tex2D(_LightTexture0, dot(lightCoord, lightCoord).rr).UNITY_ATTEN_CHANNEL;
+        #endif
+
+        #ifdef SPOT
+        #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) \
+            unityShadowCoord4 lightCoord    = mul(unity_WorldToLight, unityShadowCoord4(worldPos, 1)); \
+            fixed destName  = (lightCoord.z > 0) * UnitySpotCookie(lightCoord) * UnitySpotAttenuate(lightCoord.xyz);
+        #endif
+
+        #ifdef DIRECTIONAL
+        // #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) fixed destName = 1;
+        #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) fixed destName = UNITY_SHADOW_ATTENUATION(input, worldPos);
+        #endif
+
+        #ifdef POINT_COOKIE
+        #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) \
+            unityShadowCoord3 lightCoord    = mul(unity_WorldToLight, unityShadowCoord4(worldPos, 1)).xyz; \
+            fixed destName  = tex2D(_LightTextureB0, dot(lightCoord, lightCoord).rr).UNITY_ATTEN_CHANNEL * texCUBE(_LightTexture0, lightCoord).w;
+        #endif
+
+        #ifdef DIRECTIONAL_COOKIE
+        #define UNITY_LIGHT_ATTENUATION_NOSHADOW(destName, input, worldPos) \
+            unityShadowCoord2 lightCoord    = mul(unity_WorldToLight, unityShadowCoord4(worldPos, 1)).xy; \
+            fixed destName  = tex2D(_LightTexture0, lightCoord).w;
+        #endif
 
         //// Fancy shadeSH9 ringing correction 
         //// Method appears to be from:
@@ -133,9 +168,6 @@
         //// ambient color
         float3 DecodeLightProbe_average(){
             return float3(unity_SHAr.w, unity_SHAg.w, unity_SHAb.w);
-            // unity v2017.4.15f1. May break in other versions.
-            //return (1 - softGI) * ShadeSH9( float4(N, 1)) + (softGI) * ShadeSH9( float4(0,0,0,1));
-            // return ShadeSH9( float4(0,0,0,1));
         }
 
         //// (Unity)
@@ -164,7 +196,7 @@
             x2 = unity_SHC.rgb * vC;
             return x1 + x2;
         }
-        //// get L1 by excluding the 4th array, which is L0
+        //// get L1 by excluding the 4th index, which is L0
         half3 SHEvalDirectL1(half3 normal)
         {
             half3 L0;
@@ -172,13 +204,6 @@
             L0.g = dot(unity_SHAg,normal);
             L0.b = dot(unity_SHAb,normal);
             return L0;
-        }
-
-        //// GI L0 + L2 terms integrated to an average.
-        //// lox9973
-        float3 DecodeLightProbeAllAverage()
-        {
-            return float3(unity_SHAr.w + unity_SHBr.z/3, unity_SHAg.w + unity_SHBg.z/3, unity_SHAb.w + unity_SHBb.z/3);
         }
 
         // normal should be normalized, w=1.0
@@ -196,6 +221,7 @@
         }
 
         //// adaptive ringing corrected SH color
+        //// see shEvaluateDiffuseL1Geomerics() for citation
         float3 shadeSH9LinearAndWhole(float4 worldNormal)
         {
             float3 indirectDiffuse;
@@ -211,7 +237,6 @@
 
         //// Samples light probes and best guess primary direction.
         //// Neitri's help.
-        //// https://www.gamasutra.com/view/news/129689/Indepth_Extracting_dominant_light_from_Spherical_Harmonics.php
         //// In-depth: Extracting dominant light from Spherical Harmonics 
         //// https://www.gamasutra.com/view/news/129689/Indepth_Extracting_dominant_light_from_Spherical_Harmonics.php
         //// "Stupid Spherical Harmonics (SH) Tricks"
@@ -235,7 +260,8 @@
             return GIsonar_dir_vec;
         }
 
-        //// original cite from Arktoon
+        //// Almost get max possible intensity from indirect light.
+        //// cite Arktoon
         //// Does not include unity_SHC term (incomplete L2)
         half3 GetSHLength ()
         {
@@ -249,7 +275,7 @@
             return  x + x1;
         }
 
-        // mix colors compromising saturation peaks and intensity
+        // mix colors compromising between saturation peaks and intensity
         float3 mixColorsMaxAve(float3 a, float3 b)
         {
             // return min((a + b)*.5, max(a, b));
@@ -299,14 +325,17 @@
             float3 pos,
             float3 normal,
             out float3 vertTo0)
-        {
+        {;
             // to light vectors
             float4 toLightX = lightPosX - pos.x;
             float4 toLightY = lightPosY - pos.y;
             float4 toLightZ = lightPosZ - pos.z;
             vertTo0 = float3(toLightX[0], toLightY[0], toLightZ[0]);
+            // return Shade4PointLights(lightPosX,lightPosY,lightPosZ
+            // ,unityLightColor[0],unityLightColor[1],unityLightColor[2],unityLightColor[3]
+            // ,unity4LightAtten0
+            // ,pos, normal);
             if ( any(vertTo0) && any(unityLightColor[0].rgb)){ //// black light check
-            // if ( dot( vertTo0, vertTo0) != 0){
                 vertTo0 = normalize(vertTo0);
             } else {
                 vertTo0 = float3(0,0,0);
@@ -321,9 +350,7 @@
             // attenuation
             float4 disLimit = (lengthSq * unity4LightAtten0);
             disLimit        = ((disLimit) > 30) ? 1.#INF : disLimit;
-            float4 atten    = (1.0 / (1.0 + disLimit));
-            // atten    = lerp(0, atten, saturate(unity4LightAtten0*lengthSq));
-            // float4 atten = saturate(1.0 / (1.0 + lengthSq * lightAttenSq) - 0.034);
+            float4 atten    = saturate(1.0 / (1.0 + disLimit) - 0.04);
 
             float3 col = 0;
             col += unityLightColor[0] * atten[0];
@@ -331,54 +358,6 @@
             col += unityLightColor[2] * atten[2];
             col += unityLightColor[3] * atten[3];
             return col;
-        }
-
-        //// attenuated colors of 4 vertex lights and attenuation pass out of closest light.
-        fixed3 softShade4PointLights_Atten (
-            float4 lightPosX, float4 lightPosY, float4 lightPosZ,
-            fixed3 lightColor0, fixed3 lightColor1, fixed3 lightColor2, fixed3 lightColor3,
-            fixed4 lightAttenSq,
-            float3 pos,
-            out fixed4 attenVert
-            )
-        {
-            // to light vectors
-            float4 toLightX = lightPosX - pos.x;
-            float4 toLightY = lightPosY - pos.y;
-            float4 toLightZ = lightPosZ - pos.z;
-
-            // squared lengths
-            fixed4 lengthSq = 0;
-            lengthSq += toLightX * toLightX;
-            lengthSq += toLightY * toLightY;
-            lengthSq += toLightZ * toLightZ;
-            // don't produce NaNs if some vertex position overlaps with the light
-            lengthSq = max(lengthSq, 0.000001);
-
-            // attenuation
-            fixed4 atten = saturate(1.0 / (1.0 + lengthSq * lightAttenSq) - 0.034);
-            attenVert = atten;
-
-            fixed3 col = 0;
-            col += lightColor0 * atten[0];
-            col += lightColor1 * atten[1];
-            col += lightColor2 * atten[2];
-            col += lightColor3 * atten[3];
-            return col;
-        }
-
-        // Returns direction of first vertex light.
-        float3 softShade4PointLights_direction (
-            float4 lightPosX, float4 lightPosY, float4 lightPosZ,
-            float3 pos)
-        {
-        #ifdef VERTEXLIGHT_ON
-            float3 toLight      = float3(lightPosX[0], lightPosY[0], lightPosZ[0]) - pos;
-            float3 dirVertLight = Unity_SafeNormalize(toLight);
-        #else
-            float3 toLight      = 0;
-        #endif
-            return toLight;
         }
 
         //// vrchat shader community. Not sure exactly whom poked the mirror code to solve this.
@@ -406,6 +385,27 @@
                 direction = direction * scalar + (position - cubemapPosition);
             }
             return direction;
+        }
+
+
+
+        //// Edit so its in world space
+        //// (UNITY - UnityClipSpaceShadowCasterPos() )
+        float4 UnityWorldSpaceShadowCasterPos(float4 wPos, float3 normal)
+        {
+            if (unity_LightShadowBias.z != 0.0)
+            {
+                float3 wNormal = UnityObjectToWorldNormal(normal);
+                float3 wLight = normalize(UnityWorldSpaceLightDir(wPos.xyz));
+
+                float shadowCos = dot(wNormal, wLight);
+                float shadowSine = sqrt(1-shadowCos*shadowCos);
+                float normalBias = unity_LightShadowBias.z * shadowSine;
+
+                wPos.xyz -= wNormal * normalBias;
+            }
+
+            return mul(UNITY_MATRIX_VP, wPos);
         }
 
         //// https://www.shadertoy.com/view/4djSRW
@@ -467,7 +467,7 @@
         }
 
         //// x: x, m: threshold, n: f(x=0)=
-        inline float almostIdentity( float x, float m, float n )
+        inline float AlmostIdentity( float x, float m, float n )
         {
             if( x>m ) return x;
             float a = 2.0*n - m;
@@ -480,9 +480,14 @@
         half perceptualRoughnessToMipmapLevel_ac(half perceptualRoughness,half lodMax)
         {
             return (perceptualRoughness * lodMax);
-            // return log2(perceptualRoughness * UNITY_SPECCUBE_LOD_STEPS);
         }
-        
+
+        //// (unity) Unity_GlossyEnvironment. Cubemap LOD roughness conversion
+        half RoughnessMagicNumberUnityWhy(float perceptualRoughness)
+        {
+            return  perceptualRoughness*(1.7 - 0.7*perceptualRoughness);
+        }
+
         ////
         half ColStrength_ac(half3 specular) {
                 return max(max(specular.r, specular.g), specular.b);
@@ -492,7 +497,6 @@
         inline float3 EnergyConservationBetweenDiffuseAndSpecular_ac(
             int notConserveMode, half3 albedo, half3 specColor, out half oneMinusReflectivity)
         {
-            // oneMinusReflectivity    = max(0, totalColLum.xxx - ColStrength_ac(specColor)); /// > 1 HDR specColor
             oneMinusReflectivity    = max(0, 1 - ColStrength_ac(specColor)); /// > 1 HDR specColor
             UNITY_BRANCH
             if (notConserveMode)
@@ -501,9 +505,6 @@
                 return albedoAdd;
             } 
             else {
-                // half3 albedoConMono = albedo * max(0, (albedo - specColor)); // intensity diff
-                // half3 albedoConMono = albedo * max(0, (ColStrength_ac(albedo) - ColStrength_ac(specColor))); // intensity diff
-                // half3 albedoConMono = albedo * max(0,(1 - ( specColor))); // not HDR safe.
                 half3 albedoConMono = albedo * oneMinusReflectivity;
                 return albedoConMono;
             }
@@ -554,6 +555,12 @@
         {
             return x*x*x*x*x;
         }
+
+        half Pow5_1(half x)
+        {
+            return x*x*x*x*x;
+        }
+
         //// (Unity) approximage Schlick with ^4 instead of ^5
         //// Lerps F0 to F90 as cosA decreases
         inline half3 FresnelLerpFast_ac (half3 F0, half3 F90, half cosA)
@@ -604,6 +611,7 @@
         }
 
         //// Mihoyo's 2017-2018 unity GDC presentation on their toon shading.
+        //// my port been howevering forever....when will i add this feature?
         float StrandSpecular(
             float3 dirTangent,  float3 ndh,
             float exponent,     float strength)
@@ -613,19 +621,25 @@
             float attenDir  = smoothstep(-1, 0, tdh);
             return attenDir * pow( sinTH, exponent) * strength;
         }
-
         //// Mihoyo's 2017-2018 unity GDC presentation on their toon shading.
         float3 ShiftTangent(float3 dirTangent, float3 dirNormal, float shift)
         {
             float3 shiftedT = dirNormal * shift + dirTangent;
             return normalize(shiftedT);
         }
-
         //// Mihoyo's 2017-2018 unity GDC presentation on their toon shading.
         float3 ShiftBitangent(float3 dirBitangent, float3 dirNormal, float shift)
         {
             float3 shiftedB = dirNormal * shift + dirBitangent;
             return normalize(shiftedB);
+        }
+
+        //// designed so 'b' Intensity is unclamped
+        float3 Lerp3High2(float3 a, float3 b, float mix)
+        {
+            float3 a1 = a * saturate(1 - mix);
+            float3 b1 = b * mix;
+            return a1 + b1;
         }
 
         //// Trick for continous func ramps. Citing UTS2 for the common usage.
@@ -650,8 +664,7 @@
         {
             return low2 + (value - low1) * (high2 - low2) / (high1 - low1);
         }
-
-        //// 
+        ////
         float RemapRange01(float value, float low2, float high2)
         {
             return low2 + (value) * (high2 - low2);
@@ -686,7 +699,7 @@
             return          0.5f / (lambdaV + lambdaL + 1e-5f);
         }
 
-        //// Generic Smith-Schlick visibility term
+        //// (Unity) Generic Smith-Schlick visibility term
         inline half SmithVisibilityTerm_ac (half NdotL, half NdotV, half k)
         {
             half gL = NdotL * (1-k) + k;
@@ -695,7 +708,7 @@
                                             // therefore epsilon is smaller than can be represented by half
         }
 
-        ////
+        //// (Unity)
         inline half SmithBeckmannVisibilityTerm_ac(half NdotL, half NdotV, half roughness)
         {
             half c = 0.797884560802865h; // c = sqrt(2 / Pi)
@@ -706,7 +719,8 @@
         //// wip GSF for diffuse
         float GSF_Diff_ac (float NdotL, float NdotV, float LdotH)
         {
-            float Gs    = NdotL*NdotV/max(.00001,(LdotH*max(NdotL,NdotV)));
+            // float Gs    = NdotL*NdotV/max(.00001,(LdotH*max(NdotL,NdotV)));
+            float Gs    = NdotL*NdotV/max(.00001,(LdotH));
             // float Gs    = NdotL*NdotV/max(.00001,(LdotH));
             return      Gs;
         }
@@ -717,7 +731,7 @@
             return      (Gs);
         }
 
-        //// (Unity) Note: Disney diffuse must be multiply by diffuseAlbedo / PI. This is done outside of this function.
+        //// (Unity)
         half DisneyDiffuse_fuzz(half NdotV, half NdotL, half LdotH, half perceptualRoughness)
         {
             half fd90 = 0.5 + 2 * LdotH * LdotH * perceptualRoughness;
@@ -730,14 +744,14 @@
             return lightScatter * viewScatter;
         }
 
-        //// UDN normal map blending
+        //// UDN normal map blending.
         //// https://blog.selfshadow.com/publications/blending-in-detail/
-        float3 blend_udn(float3 n1, float3 n2)
+        float3 Blend_udn(float3 n1, float3 n2)
         {
             return normalize(float3(n1.xy + n2.xy, n1.z));
             // return normalize(n1*dot(n1, n2)/n1.z - n2);
         }
-        float3 blend_rnm(float4 n1, float4 n2)
+        float3 Blend_rnm(float4 n1, float4 n2)
         {
             float3 t = n1.xyz*float3( 2,  2, 2) + float3(-1, -1,  0);
             float3 u = n2.xyz*float3(-2, -2, 2) + float3( 1,  1, -1);
@@ -748,7 +762,7 @@
         ////============================================================
         //// https://www.shadertoy.com/view/4sV3zt
         //// https://keithmaggio.wordpress.com/2011/02/15/math-magician-lerp-slerp-and-nlerp/
-        float3 slerp(float3 start, float3 end, float percent)
+        float3 Slerp(float3 start, float3 end, float percent)
         {
             float d     = dot(start, end);
             d           = clamp(d, -1.0, 1.0);
@@ -757,13 +771,154 @@
             return      ((start*cos(theta)) + (RelativeVec*sin(theta)));
         }
 
-        //// get ratio of color A on B, weighted by a Scale
-        half ratioOfColors(half3 colorA, half3 colorB, half colorAMultiplier)
+        //// get intensity ratio of color A on B, weighted by a Scale
+        half RatioOfColors(half3 colorA, half3 colorB, half colorAMultiplier)
         {
             half cALum  = LinearRgbToLuminance_ac(colorA), cBLum = LinearRgbToLuminance_ac(colorB);
             half cDiff  = ((cALum * colorAMultiplier) - cBLum);
             half cSum   = cALum + cBLum;
             return saturate(cDiff / cSum);
         }
+
+        //// https://github.com/cplotts/WPFSLBlendModeFx/blob/master/PhotoshopMathFP.hlsl
+        // For all settings: 1.0 = 100% 0.5=50% 1.5 = 150%
+        float3 ContrastSaturationBrightness(float3 color, float brt, float sat, float con)
+        {
+            // Increase or decrease theese values to adjust r, g and b color channels seperately
+            const float AvgLumR = 0.5;
+            const float AvgLumG = 0.5;
+            const float AvgLumB = 0.5;
+            
+            const float3 LumCoeff = float3(0.2125, 0.7154, 0.0721);
+            
+            float3 AvgLumin = float3(AvgLumR, AvgLumG, AvgLumB);
+            float3 brtColor = color * brt;
+            float intensityf = dot(brtColor, LumCoeff);
+            float3 intensity = float3(intensityf, intensityf, intensityf);
+            float3 satColor = lerp(intensity, brtColor, sat);
+            float3 conColor = lerp(AvgLumin, satColor, con);
+            return conColor;
+        }
+        ////
+
+        ////////////////
+        ////////////////
+        //// http://wiki.polycount.com/wiki/Blending_functions
+        float3 Darken (float3 cBase, float3 cBlend)
+        {
+            float3 cNew;
+            cNew.rgb = min(cBase.rgb, cBlend.rgb);
+            return cNew;
+        }
+        
+        float3 Multiply (float3 cBase, float3 cBlend)
+        {
+            return (cBase * cBlend);
+        }
+
+        float3 ColorBurn (float3 cBase, float3 cBlend)
+        {
+            return (1 - (1 - cBase) /  max(0.00001, cBlend));
+        }
+
+        float3 LinearBurn (float3 cBase, float3 cBlend)
+        {
+            return (cBase + cBlend - 1);
+        }
+
+        float3 Lighten (float3 cBase, float3 cBlend)
+        {
+            float3 cNew;
+            cNew.rgb = max(cBase.rgb, cBlend.rgb);
+            return cNew;
+        }
+        
+        float3 Screen (float3 cBase, float3 cBlend)
+        {
+            return (1 - (1 - cBase) * (1 - cBlend));
+        }
+
+        float3 ColorDodge (float3 cBase, float3 cBlend)
+        {
+            return (cBase / max(0.00001, (1 - cBlend)));
+        }
+
+        float3 LinearDodge (float3 cBase, float3 cBlend)
+        {
+            return (cBase + cBlend);
+        }
+
+        ////
+        float3 Overlay (float3 cBase, float3 cBlend)
+        {
+            float isLessOrEq = step(cBase, .5);
+            float3 cNew = lerp(2*cBlend*cBase, 1 - (1 - 2*(cBase - .5))*(1 - cBlend), isLessOrEq);
+            return cNew;
+        }
+
+        float3 SoftLight (float3 cBase, float3 cBlend)
+        {
+            float isLessOrEq = step(cBlend, .5);
+            float3 cNew = lerp(1 - (1 - cBase)*(1 - 2*cBlend*cBase), cBase*(1 - (1 - cBase)*(1 - 2*cBlend)), isLessOrEq);
+            return cNew;
+        }
+
+        float3 HardLight (float3 cBase, float3 cBlend)
+        {
+            float isLessOrEq = step(cBlend, .5);
+            float3 cNew = lerp(1 - (1 - cBase)*(1 - 2*cBlend), 2*cBlend*cBase, isLessOrEq);
+            return cNew;
+        }
+        
+        float3 VividLight (float3 cBase, float3 cBlend)
+        {
+            float isLessOrEq = step(cBlend, .5);
+            float3 cNew = lerp(1 - (1 - cBase)/(2*(cBlend - .5)), cBase/ max(0.00001, (1 - 2*cBlend)), isLessOrEq);
+            return cNew;
+        }
+
+        float3 LinearLight (float3 cBase, float3 cBlend)
+        {
+            float isLessOrEq = step(cBlend, .5);
+            float3 cNew = lerp(cBase + 2*(cBlend - .5), cBase + 2*cBlend - 1., isLessOrEq);
+            return cNew;
+        }
+
+        float3 PinLight (float3 cBase, float3 cBlend)
+        {
+            float isLessOrEq = step(cBlend, .5);
+            float3 cNew = lerp(max(cBase, 2*(cBlend - .5)), min(cBase, 2*cBlend), isLessOrEq);
+            return cNew;
+        }
+        ////
+        ////////////////
+        ////////////////
+
+        //// HSVI controller, shorthand control of HSV.
+        half3 HSVI_controllerToRGB(half3 hsv, half H, half S, half V)
+        {
+            return HSVToRGB(half3((hsv.x + H), saturate(hsv.y + S), saturate(hsv.z + V)));
+        }
+
+        //// converts RGB to HSV with a Saturated white by (I)ntensity
+        half3 HSVI_controller(half3 rgb, half H, half S, half V, half I)
+        {
+            half3 hsv = RGBToHSV(saturate(rgb * I));
+            return HSVI_controllerToRGB(hsv, H, S, V);
+        }
+
+        half3 HSVI_controllerHueHolder(half3 rgb, half3 hueSource, half S, half V)
+        {
+            half3 hsv = RGBToHSV(rgb);
+            half3 hsvSource = RGBToHSV(hueSource);
+            return HSVToRGB(half3(hsvSource.x, saturate(hsv.y + S), max(0,hsv.z + V)));
+        }
+
+        //// (catLikeCoding)
+        float4 SetupDetail (float4 detailUV)
+        {
+            return detailUV * 2.0 - 1.0;
+        }
+
 
 #endif

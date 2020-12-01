@@ -1,8 +1,8 @@
 ﻿//// ACiiL
 //// Citations in readme and in source.
 //// https://github.com/ACIIL/ACLS-Shader
-Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
-        Properties {
+Shader "ACiiL/toon/ACLS_Toon_Cutout_Outline" {
+    Properties {
         [Enum(OFF,0,FRONT,1,BACK,2)] _CullMode("Cull Mode", int)    = 2  //OFF/FRONT/BACK
         [HDR] _backFaceColorTint("Backface Color Tint",Color)   = (1,1,1,1)
 
@@ -168,18 +168,28 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
         [Enum(UV0,0,UV1,1)] _uvSet_NormalMapForMatCap("_uvSet_NormalMapForMatCap", int) = 0
         [Enum(UV0,0,UV1,1)] _uvSet_DetailMap("_uvSet_DetailMap", int) = 0
         [Enum(UV0,0,UV1,1)] _uvSet_EmissionColorTex("_uvSet_EmissionColorTex", int) = 0
+        // outline
+        _OutlineTex("Outline tex", 2D) = "white" {}
+        _Outline_Sampler("Outline sampler", 2D) = "white" {}
+        [HDR] _Outline_Color("Outline color", Color) = (0.2,0.2,0.2,1)
+        [ToggleUI] _Is_BlendBaseColor("_Is_BlendBaseColor", Float ) = 0
+        [ToggleUI] _Is_OutlineTex("_Is_OutlineTex", Float ) = 0
+        _Outline_Width("Outline width", Float ) = 3
+        _Nearest_Distance("Nearest distance", Float ) = 2// verbally flipped in gui
+        _Farthest_Distance("Farthest distance", Float ) = .1// verbally flipped in gui
+        _Offset_Z("Offset Camera Z depth", Range(-0.2,0.1)) = 0
         // [Header(Alpha mask)]
         // [Space(18)]
         // [Enum(Off,0,On,1)] _ZWrite("Z Write Depth sorting (Recommend off)",Int)     = 1
         [Enum(Clipping Mask,0,Main Texture,1)] _IsBaseMapAlphaAsClippingMask("Alpha mask source",Int)   = 1
         _ClippingMask("--Clipping mask (G)",2D)                                     = "white" {}
-        [ToggleUI] _Inverse_Clipping("Inverse clipping",Int)                       = 0
-        _Clipping_Level("Clipping level",Range(0, 1))                               = 0.5
-        _Tweak_transparency("--Tweak transparency",Range(-1, 1))                    = 0
+        [ToggleUI] _Inverse_Clipping("Inverse clipping", Float )                   = 0
+        _Clipping_Level("Clipping level", Range(0, 1))                              = 0.5
+        _Tweak_transparency("--Tweak transparency", Range(-1, 1))                   = 0
         // [Space(18)]
-        // [Enum(alpha,0,reflect,1)] _UseSpecAlpha("Specular Alpha opacity",Int)       = 0
+        // [ToggleUI] _UseSpecAlpha("Use specular Alpha",Float)                       = 0
         [ToggleUI] _DetachShadowClipping("Separate Shadow Clipping Level",Int)     = 0
-        _Clipping_Level_Shadow("--Shadow Clip",Range(0, 1))                         = 1
+        _Clipping_Level_Shadow("--Shadow Clip", Range(0, 1))                        = 1
         // [Header(Stencil Helpers. Requires Queue Order Edits)]
         _Stencil("Stencil ID [0;255]", Range(0,255))                                        = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp("--Comparison", Int)     = 0
@@ -194,11 +204,9 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
 
     SubShader {
         Tags {
-            "Queue"="AlphaTest+1"
+            "Queue"="AlphaTest"
             "RenderType"="TransparentCutout"
         }
-        // AlphaToMask on
-        // AlphaToMask off
 
 
 
@@ -207,12 +215,9 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
             Tags {
                 "LightMode"="ForwardBase"
             }
-            AlphaToMask On
             Blend One Zero
-            // Blend SrcAlpha OneMinusSrcAlpha
-            // Blend One OneMinusSrcAlpha //// PremultiplyAlpha?
             Cull[_CullMode]
-            ZWrite On
+            ZWrite on
 
             Stencil
             {
@@ -221,7 +226,7 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
                 Pass [_StencilOp]
                 Fail [_StencilFail]
             }
-
+            
             CGPROGRAM
             #pragma target 5.0
             #pragma vertex vert
@@ -235,8 +240,43 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
             #pragma multi_compile_fog
             #pragma multi_compile UNITY_PASS_FORWARDBASE
             #pragma multi_compile _ UNITY_HDR_ON
-            #define UseAlphaDither
+            #define IsClip
             #include "ACLS_CORE.cginc"
+            ENDCG
+        }
+
+        Pass {
+            Name "FORWARD_OUTLINE"
+            Tags {
+                "LightMode"="ForwardBase"
+            }
+            Blend One Zero
+            Cull Front
+            ZWrite on
+
+            Stencil
+            {
+                Ref [_Stencil]
+                Comp [_StencilComp]
+                Pass [_StencilOp]
+                Fail [_StencilFail]
+            }
+            
+            CGPROGRAM
+            #pragma target 5.0
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+            #include "AutoLight.cginc"
+            #include "Lighting.cginc"
+            // #pragma multi_compile_fwdbase_fullshadows
+            #pragma multi_compile_fwdbase
+            #pragma multi_compile_instancing
+            #pragma multi_compile_fog
+            #pragma multi_compile UNITY_PASS_FORWARDBASE
+            #pragma multi_compile _ UNITY_HDR_ON
+            #define IsClip
+            #include "ACLS_OUTLINE.cginc"
             ENDCG
         }
 
@@ -247,7 +287,6 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
             Tags {
                 "LightMode"="ForwardAdd"
             }
-            AlphaToMask On
             Blend One One
             BlendOp[_BlendOp]
             Cull[_CullMode]
@@ -260,7 +299,7 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
                 Pass [_StencilOp]
                 Fail [_StencilFail]
             }
-
+            
             CGPROGRAM
             #pragma target 5.0
             #pragma vertex vert
@@ -273,8 +312,42 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
             #pragma multi_compile_fog
             #pragma multi_compile UNITY_PASS_FORWARDADD
             #pragma multi_compile _ UNITY_HDR_ON
-            #define UseAlphaDither
+            #define IsClip
             #include "ACLS_CORE.cginc"
+            ENDCG
+        }
+        Pass {
+            Name "FORWARD_DELTA_OUTLINE"
+            Tags {
+                "LightMode"="ForwardAdd"
+            }
+            Blend One One
+            BlendOp[_BlendOp]
+            Cull Front
+            ZWrite off
+
+            Stencil
+            {
+                Ref [_Stencil]
+                Comp [_StencilComp]
+                Pass [_StencilOp]
+                Fail [_StencilFail]
+            }
+            
+            CGPROGRAM
+            #pragma target 5.0
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+            #include "AutoLight.cginc"
+            #include "Lighting.cginc"
+            #pragma multi_compile_fwdadd_fullshadows
+            #pragma multi_compile_instancing
+            #pragma multi_compile_fog
+            #pragma multi_compile UNITY_PASS_FORWARDADD
+            #pragma multi_compile _ UNITY_HDR_ON
+            #define IsClip
+            #include "ACLS_OUTLINE.cginc"
             ENDCG
         }
 
@@ -285,7 +358,6 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
             Tags {
                 "LightMode"="ShadowCaster"
             }
-            AlphaToMask Off
             Offset 1 ,1
             Cull [_CullMode]
             ZWrite On ZTest LEqual
@@ -296,10 +368,9 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaCutout_Dither" {
             #pragma fragment frag
             #include "UnityCG.cginc"
             #include "Lighting.cginc"
-            #pragma fragmentoption ARB_precision_hint_fastest
             #pragma multi_compile_shadowcaster
             #pragma multi_compile_instancing
-            #define Dither
+            #define IsClip
             #include "ACLS_SHADOWCASTER.cginc"
             ENDCG
         }
