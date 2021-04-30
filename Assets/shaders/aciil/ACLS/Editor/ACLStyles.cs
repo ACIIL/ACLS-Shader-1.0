@@ -10,7 +10,7 @@ using System.IO;
 [InitializeOnLoad]
 public class ACLStyles : MonoBehaviour
 {
-    public static string ver = "ACLS-Shader v" + "<color=#ff0000ff>1.4</color>";
+    public static string ver = "ACLS-Shader v" + "<color=#ff0000ff>1.5</color>";
     
     private static Rect DrawShuriken(string title, Vector2 contentOffset, int HeaderHeight)
     {
