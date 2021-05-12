@@ -490,7 +490,7 @@
                 UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
                 half shadowAtten = UNITY_SHADOW_ATTENUATION(i, i.worldPos.xyz);
             #endif
-                shadowAtten = RemapRange(shadowAtten,_LightShadowData.x+.001,1,0,1);//// floor shadow to 0.0, as to normalize
+				shadowAtten = RemapRange(shadowAtten, max(0, _LightShadowData.x - .001), 1, 0, 1);//// floor shadow to 0.0, as to normalize
                 if (_shadowUseCustomRampNDL) //// nDl shadow
                 {
                     half nDlSha = dot(dirNormalToonRamp, dirLight) *.5+.5;                    
