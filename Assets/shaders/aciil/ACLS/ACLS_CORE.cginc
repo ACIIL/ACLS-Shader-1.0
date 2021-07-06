@@ -45,12 +45,12 @@
             sampler3D _DitherMaskLOD;
 
             //// sample sets: normals, albedo(shades/masks), AOs, matcap, emissionTex
-            SamplerState sampler_MainTex_trilinear_repeat;
-            SamplerState sampler_Set_1st_ShadePosition_trilinear_repeat;
-            SamplerState sampler_NormalMap_trilinear_repeat;
-            SamplerState sampler_MatCap_Sampler_Trilinear_clamp;
-            SamplerState sampler_EmissionColorTex_trilinear_repeat;
-            SamplerState sampler_DetailMap_trilinear_repeat;
+            SamplerState sampler_MainTex;
+            SamplerState sampler_Set_1st_ShadePosition;
+            SamplerState sampler_NormalMap;
+            SamplerState sampler_MatCap_Trilinear_clamp;
+            SamplerState sampler_EmissionColorTex;
+            SamplerState sampler_DetailMap;
 
             ////
             uniform half _Clipping_Level;
@@ -220,7 +220,7 @@
                 float3 worldPos : TEXCOORD1;
                 float3 wNormal  : TEXCOORD2;
                 float4 tangent  : TEXCOORD3;
-                float3 bitTangent   : TEXCOORD4;
+                float3 biTangent   : TEXCOORD4;
                 float3 vertexLighting    : TEXCOORD5;
                 float3 dirGI        : TEXCOORD6;
                 float4 uv01         : TEXCOORD7;
@@ -253,7 +253,7 @@
                 o.center        = mul( unity_ObjectToWorld, float4(0,0,0,1));
                 o.wNormal       = UnityObjectToWorldNormal( v.normal);
                 o.tangent       = ( float4(UnityObjectToWorldDir(v.tangent.xyz), v.tangent.w));
-                o.bitTangent    = ( cross( o.wNormal, o.tangent.xyz ) * v.tangent.w);
+                o.biTangent    = ( cross( o.wNormal, o.tangent.xyz ) * v.tangent.w);
                 o.screenPos     = ComputeScreenPos(o.pos);
                 o.color         = v.color;
                 // TRANSFER_VERTEX_TO_FRAGMENT(o);
@@ -290,8 +290,6 @@
                 if(isBackFace) { //// flip normal for back faces.
                     i.wNormal = -i.wNormal;
                 }
-                i.tangent               = normalize(i.tangent);
-                i.bitTangent            = normalize(i.bitTangent);
                 float3 worldviewPos     = StereoWorldViewPos();
                 float3 posDiff          = worldviewPos - i.worldPos.xyz;
                 float viewDis           = length(posDiff);
@@ -313,29 +311,33 @@
                 UV_DD uv_normalMap              = UVDD(TRANSFORM_TEX( UVPick01(i.uv01), _NormalMap));
                 UV_DD uv_normalMapDetail        = UVDD(TRANSFORM_TEX( UVPick01(i.uv01, _uvSet_NormalMapDetail), _NormalMapDetail));
                 UV_DD uv_normalMapDetailMask    = UVDD(TRANSFORM_TEX( UVPick01(i.uv01), _DetailNormalMask));
-                float3 normalMap            = UnpackNormal( _NormalMap.SampleGrad( sampler_NormalMap_trilinear_repeat, uv_normalMap.uv, uv_normalMap.dx, uv_normalMap.dy));
+                float3 normalMap            = UnpackNormal( _NormalMap.SampleGrad( sampler_NormalMap, uv_normalMap.uv, uv_normalMap.dx, uv_normalMap.dy));
                 if (_DetailNormalMapScale01)  //// slider > 0
                 {
-                    float4 normalDetailMask = _DetailNormalMask.SampleGrad( sampler_MainTex_trilinear_repeat, uv_normalMapDetailMask.uv, uv_normalMapDetailMask.dx, uv_normalMapDetailMask.dy);
-                    float3 normalMapDetail  = UnpackNormal( _NormalMapDetail.SampleGrad( sampler_NormalMap_trilinear_repeat, uv_normalMapDetail.uv, uv_normalMapDetail.dx, uv_normalMapDetail.dy));
+                    float4 normalDetailMask = _DetailNormalMask.SampleGrad( sampler_MainTex, uv_normalMapDetailMask.uv, uv_normalMapDetailMask.dx, uv_normalMapDetailMask.dy);
+                    float3 normalMapDetail  = UnpackNormal( _NormalMapDetail.SampleGrad( sampler_NormalMap, uv_normalMapDetail.uv, uv_normalMapDetail.dx, uv_normalMapDetail.dy));
                     normalMap               = lerp( normalMap, BlendNormals(normalMap, normalMapDetail), (normalDetailMask.g * _DetailNormalMapScale01));
                 }
-                float3x3 tangentTransform   = float3x3( i.tangent.xyz , i.bitTangent.xyz, i.wNormal);
-                float3 dirNormal            = normalize( mul( normalMap, tangentTransform ));
+				float3 dirTangent   = i.tangent.xyz;
+				float3 dirBitangent = i.biTangent.xyz;
+				float3x3 tangentTransform   = float3x3(dirTangent, dirBitangent, i.wNormal);
+				float3 dirNormal            = normalize( mul( normalMap, tangentTransform ));
+				dirTangent          = normalize(dirTangent);
+				dirBitangent        = normalize(dirBitangent);
                 // return float4(dirNormal*.5+.5,1);
 
 //// albedo texure
                 UV_DD uv_toon           = UVDD( TRANSFORM_TEX( UVPick01(i.uv01), _MainTex));
-                float4 mainTex          = _MainTex.SampleGrad( sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy);
+                float4 mainTex          = _MainTex.SampleGrad( sampler_MainTex, uv_toon.uv, uv_toon.dx, uv_toon.dy);
 
 //// detail textures
                 UV_DD uv_detalAlbedo    = UVDD( TRANSFORM_TEX( UVPick01(i.uv01, _uvSet_DetailMap), _DetailMap));
-                half4 detailMap         = SetupDetail( _DetailMap.SampleGrad( sampler_DetailMap_trilinear_repeat, uv_detalAlbedo.uv, uv_detalAlbedo.dx, uv_detalAlbedo.dy));///R albedo, B smoothness
-                half4 detailMask         = _DetailMask.SampleGrad( sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy);
+                half4 detailMap         = SetupDetail( _DetailMap.SampleGrad( sampler_DetailMap, uv_detalAlbedo.uv, uv_detalAlbedo.dx, uv_detalAlbedo.dy));///R albedo, B smoothness
+                half4 detailMask         = _DetailMask.SampleGrad( sampler_MainTex, uv_toon.uv, uv_toon.dx, uv_toon.dy);
 
 //// clip & alpha handling. Here so clip() may interrupt flow.
 #ifndef NotAlpha
-                float4 clipMask          = _ClippingMask.Sample(sampler_MainTex_trilinear_repeat, TRANSFORM_TEX( UVPick01(i.uv01), _ClippingMask));
+                float4 clipMask          = _ClippingMask.Sample(sampler_MainTex, TRANSFORM_TEX( UVPick01(i.uv01), _ClippingMask));
                 float useMainTexAlpha   = (_IsBaseMapAlphaAsClippingMask) ? mainTex.a : clipMask.r;
                 float alpha             = (_Inverse_Clipping) ? (1.0 - useMainTexAlpha) : useMainTexAlpha;
 
@@ -363,7 +365,7 @@
 
 //// toon shade manual paint textures
                 UNITY_BRANCH
-                float4 shadeMapTex_1 = (_Use_BaseAs1st) ? (mainTex) : (_1st_ShadeMap.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy));
+                float4 shadeMapTex_1 = (_Use_BaseAs1st) ? (mainTex) : (_1st_ShadeMap.SampleGrad(sampler_MainTex, uv_toon.uv, uv_toon.dx, uv_toon.dy));
                 float4 shadeMapTex_2 = 0;
                 UNITY_BRANCH
                 if (_Use_1stAs2nd > 1)
@@ -374,7 +376,7 @@
                     shadeMapTex_2 = shadeMapTex_1;
                 } else
                 {
-                    shadeMapTex_2 = (_2nd_ShadeMap.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy));
+                    shadeMapTex_2 = (_2nd_ShadeMap.SampleGrad(sampler_MainTex, uv_toon.uv, uv_toon.dx, uv_toon.dy));
                 }
 
 
@@ -450,8 +452,8 @@
                 //// normal mc emis
 
                 //// aniso support. Observe [-1..1]
-                // float hdx_Norm_full = (dot(dirHalf,  i.tangent));
-                // float hdy_Norm_full = (dot(dirHalf,  i.bitTangent));
+                // float hdx_Norm_full = (dot(dirHalf,  dirTangent));
+                // float hdy_Norm_full = (dot(dirHalf,  dirBitangent));
 
 
 
@@ -490,7 +492,7 @@
                 UNITY_LIGHT_ATTENUATION_NOSHADOW(lightAtten, i, i.worldPos.xyz);
                 half shadowAtten = UNITY_SHADOW_ATTENUATION(i, i.worldPos.xyz);
             #endif
-                shadowAtten = RemapRange(shadowAtten,_LightShadowData.x+.001,1,0,1);//// floor shadow to 0.0, as to normalize
+				shadowAtten = RemapRange(shadowAtten, max(0, _LightShadowData.x - .001), 1, 0, 1);//// floor shadow to 0.0, as to normalize
                 if (_shadowUseCustomRampNDL) //// nDl shadow
                 {
                     half nDlSha = dot(dirNormalToonRamp, dirLight) *.5+.5;                    
@@ -513,7 +515,7 @@
                 UNITY_BRANCH
                 if ( (_shadowCastMin_black) || !(_DynamicShadowMask_TexelSize.z <16)) 
                 {
-                    half dynamicShadowMask = _DynamicShadowMask.SampleGrad(sampler_MainTex_trilinear_repeat, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
+                    half dynamicShadowMask = _DynamicShadowMask.SampleGrad(sampler_MainTex, uv_toon.uv, uv_toon.dx, uv_toon.dy).g;
                     shadowRemoval = max(_shadowCastMin_black, dynamicShadowMask);
                 }
                 shadowAtten = saturate(RemapRange(shadowAtten+shadowRemoval,0,1,_LightShadowData.x+.001,1));//// then return 0.0 to floor
@@ -595,8 +597,8 @@
                 //// Normalized values: 1 represents brighter, 0 darker
                 //// toon ramp AO masks. These down ramp as to "force shadow"
                 UV_DD uv_ShadePosition  = UVDD(TRANSFORM_TEX( UVPick01(i.uv01, _uvSet_ShadePosition), _MainTex));
-                float shadowTex_1       = _Set_1st_ShadePosition.SampleGrad(sampler_Set_1st_ShadePosition_trilinear_repeat, uv_ShadePosition.uv, uv_ShadePosition.dx, uv_ShadePosition.dy).g;
-                float shadowTex_2       = _Set_2nd_ShadePosition.SampleGrad(sampler_Set_1st_ShadePosition_trilinear_repeat, uv_ShadePosition.uv, uv_ShadePosition.dx, uv_ShadePosition.dy).g;
+                float shadowTex_1       = _Set_1st_ShadePosition.SampleGrad(sampler_Set_1st_ShadePosition, uv_ShadePosition.uv, uv_ShadePosition.dx, uv_ShadePosition.dy).g;
+                float shadowTex_2       = _Set_2nd_ShadePosition.SampleGrad(sampler_Set_1st_ShadePosition, uv_ShadePosition.uv, uv_ShadePosition.dx, uv_ShadePosition.dy).g;
                 //// Assist for shadow mask
                 float shadeRamp_n1 = dDiff.ndl;//// ndl Core area
                 float shadeRamp_n2 = dDiff.ndl;//// ndl Backward area
@@ -608,7 +610,7 @@
                 if (_UseLightMap)
                 {
                     UV_DD uv_lightMap   = UVDD( TRANSFORM_TEX( UVPick01(i.uv01, _uvSet_LightMap), _LightMap));
-                    lightMask           = _LightMap.SampleGrad( sampler_MainTex_trilinear_repeat, uv_lightMap.uv, uv_lightMap.dx, uv_lightMap.dy);
+                    lightMask           = _LightMap.SampleGrad( sampler_MainTex, uv_lightMap.uv, uv_lightMap.dx, uv_lightMap.dy);
                     lightMask.g         = saturate(RemapRange01(lightMask.g, _lightMap_remapArr[2], _lightMap_remapArr[3]));////[0,1]->[A,B]->clamp
                     //// enum mode 2. Use vertex color red
                     UNITY_BRANCH
@@ -730,10 +732,10 @@
 
 //// specular setup control
                 UV_DD uv_specularMask       = UVDD( TRANSFORM_TEX( UVPick01(i.uv01), _Set_HighColorMask));
-                float4 specularMask         = _Set_HighColorMask.SampleGrad( sampler_MainTex_trilinear_repeat, uv_specularMask.uv, uv_specularMask.dx, uv_specularMask.dy);
+                float4 specularMask         = _Set_HighColorMask.SampleGrad( sampler_MainTex, uv_specularMask.uv, uv_specularMask.dx, uv_specularMask.dy);
                 float aoSpecularM           = saturate(specularMask.g + _Tweak_HighColorMaskLevel);
                 UV_DD uv_specular           = UVDD( TRANSFORM_TEX( UVPick01(i.uv01), _HighColor_Tex));
-                float4 highColorTex         = _HighColor_Tex.SampleGrad( sampler_MainTex_trilinear_repeat, uv_specular.uv, uv_specular.dx, uv_specular.dy);
+                float4 highColorTex         = _HighColor_Tex.SampleGrad( sampler_MainTex, uv_specular.uv, uv_specular.dx, uv_specular.dy);
                 float3 specularSrcCol       = highColorTex.rgb;
                 float smoothness            = (highColorTex.a) * _Glossiness;
                 UNITY_BRANCH
@@ -912,7 +914,7 @@
                     float2 rot_MatCapNmUV       = rotateUV( UVPick01(i.uv01, _uvSet_NormalMapForMatCap), float2(0.5,0.5), (_Rotate_NormalMapForMatCapUV * 3.141592654));
                     //// normal map
                     UV_DD uv_matcap_nm          = UVDD( TRANSFORM_TEX( rot_MatCapNmUV, _NormalMapForMatCap));
-                    float4 normalMapForMatCap   = _NormalMapForMatCap.SampleGrad( sampler_NormalMap_trilinear_repeat, uv_matcap_nm.uv, uv_matcap_nm.dx, uv_matcap_nm.dy);
+                    float4 normalMapForMatCap   = _NormalMapForMatCap.SampleGrad( sampler_NormalMap, uv_matcap_nm.uv, uv_matcap_nm.dx, uv_matcap_nm.dy);
                     float3 matCapNormalMapTex   = UnpackNormal( normalMapForMatCap);
                     //// v.2.0.5: MatCap with camera skew correction. @kanihira
                     float3 dirNormalMatcap      = (_Is_NormalMapForMatCap) ? mul( matCapNormalMapTex, tangentTransform) : i.wNormal;
@@ -944,9 +946,9 @@
                     half mcBlur1 = (_matcapRoughnessSource1) ? mcNaturalRoughness : _BlurLevelMatcap1;
                     half mcBlur2 = (_matcapRoughnessSource2) ? mcNaturalRoughness : _BlurLevelMatcap2;
                     float2 matcapUV         = TRANSFORM_TEX(rot_MatCapUV, _MatCapTexAdd);
-                    float4 matCapTexAdd     = _MatCapTexAdd .SampleLevel(sampler_MatCap_Sampler_Trilinear_clamp, matcapUV, perceptualRoughnessToMipmapLevel_ac(mcBlur0,mcLodMax0));
-                    float4 matCapTexMult    = _MatCapTexMult.SampleLevel(sampler_MatCap_Sampler_Trilinear_clamp, matcapUV, perceptualRoughnessToMipmapLevel_ac(mcBlur1,mcLodMax1));
-                    float4 matCapTexEmis    = _MatCapTexEmis.SampleLevel(sampler_MatCap_Sampler_Trilinear_clamp, matcapUV, perceptualRoughnessToMipmapLevel_ac(mcBlur2,mcLodMax2));
+                    float4 matCapTexAdd     = _MatCapTexAdd .SampleLevel(sampler_MatCap_Trilinear_clamp, matcapUV, perceptualRoughnessToMipmapLevel_ac(mcBlur0,mcLodMax0));
+                    float4 matCapTexMult    = _MatCapTexMult.SampleLevel(sampler_MatCap_Trilinear_clamp, matcapUV, perceptualRoughnessToMipmapLevel_ac(mcBlur1,mcLodMax1));
+                    float4 matCapTexEmis    = _MatCapTexEmis.SampleLevel(sampler_MatCap_Trilinear_clamp, matcapUV, perceptualRoughnessToMipmapLevel_ac(mcBlur2,mcLodMax2));
                     ////
                     mcMixAdd          = matCapTexAdd.rgb * matCapTexAdd.a;
                     mcMixMult         = matCapTexMult.rgb * matCapTexMult.a;
@@ -957,7 +959,7 @@
                         matcapShaMask       = lerp(1, shadowMaskNormalized, _TweakMatCapOnShadow);
                     }
                     UV_DD uv_mcMask         = UVDD( TRANSFORM_TEX( UVPick01(i.uv01), _Set_MatcapMask));
-                    float4 matcapMaskTex    = _Set_MatcapMask.SampleGrad( sampler_MainTex_trilinear_repeat, uv_mcMask.uv, uv_mcMask.dx, uv_mcMask.dy);
+                    float4 matcapMaskTex    = _Set_MatcapMask.SampleGrad( sampler_MainTex, uv_mcMask.uv, uv_mcMask.dx, uv_mcMask.dy);
                     matcapMask              *= saturate(matcapMaskTex.g + _Tweak_MatcapMaskLevel);
                 }
                 else {
@@ -976,7 +978,7 @@
                 UNITY_BRANCH
                 if ((_RimLight) || (_Add_Antipodean_RimLight))
                 {
-                    half4 rimLightMaskTex  = _Set_RimLightMask.SampleGrad( sampler_MainTex_trilinear_repeat, uv_rimLight.uv, uv_rimLight.dx, uv_rimLight.dy);
+                    half4 rimLightMaskTex  = _Set_RimLightMask.SampleGrad( sampler_MainTex, uv_rimLight.uv, uv_rimLight.dx, uv_rimLight.dy);
                     half rimLightTexMask   = saturate( rimLightMaskTex.g + _Tweak_RimLightMaskLevel);
                     ////
                     half rimArea        = (1.0 - dRimLight.ndv);
@@ -1038,8 +1040,8 @@
 
 //// Emission
 #ifdef UNITY_PASS_FORWARDBASE
-                float4 emissiveMask     = _Emissive_Tex.Sample( sampler_EmissionColorTex_trilinear_repeat, TRANSFORM_TEX( UVPick01(i.uv01), _Emissive_Tex));
-                float4 emissionTex      = _EmissionColorTex.Sample( sampler_EmissionColorTex_trilinear_repeat, TRANSFORM_TEX( UVPick01(i.uv01, _uvSet_EmissionColorTex), _EmissionColorTex));
+                float4 emissiveMask     = _Emissive_Tex.Sample( sampler_EmissionColorTex, TRANSFORM_TEX( UVPick01(i.uv01), _Emissive_Tex));
+                float4 emissionTex      = _EmissionColorTex.Sample( sampler_EmissionColorTex, TRANSFORM_TEX( UVPick01(i.uv01, _uvSet_EmissionColorTex), _EmissionColorTex));
                 if (_emissiveUseMainTexA) //// because i know games that store emission mask in main texture alpha channel
                 {
                     emissiveMask.g  = mainTex.a;
