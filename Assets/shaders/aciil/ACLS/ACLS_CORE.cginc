@@ -220,7 +220,7 @@
                 float3 worldPos : TEXCOORD1;
                 float3 wNormal  : TEXCOORD2;
                 float4 tangent  : TEXCOORD3;
-                float3 bitTangent   : TEXCOORD4;
+                float3 biTangent   : TEXCOORD4;
                 float3 vertexLighting    : TEXCOORD5;
                 float3 dirGI        : TEXCOORD6;
                 float4 uv01         : TEXCOORD7;
@@ -253,7 +253,7 @@
                 o.center        = mul( unity_ObjectToWorld, float4(0,0,0,1));
                 o.wNormal       = UnityObjectToWorldNormal( v.normal);
                 o.tangent       = ( float4(UnityObjectToWorldDir(v.tangent.xyz), v.tangent.w));
-                o.bitTangent    = ( cross( o.wNormal, o.tangent.xyz ) * v.tangent.w);
+                o.biTangent    = ( cross( o.wNormal, o.tangent.xyz ) * v.tangent.w);
                 o.screenPos     = ComputeScreenPos(o.pos);
                 o.color         = v.color;
                 // TRANSFER_VERTEX_TO_FRAGMENT(o);
@@ -290,8 +290,6 @@
                 if(isBackFace) { //// flip normal for back faces.
                     i.wNormal = -i.wNormal;
                 }
-                i.tangent               = normalize(i.tangent);
-                i.bitTangent            = normalize(i.bitTangent);
                 float3 worldviewPos     = StereoWorldViewPos();
                 float3 posDiff          = worldviewPos - i.worldPos.xyz;
                 float viewDis           = length(posDiff);
@@ -320,8 +318,12 @@
                     float3 normalMapDetail  = UnpackNormal( _NormalMapDetail.SampleGrad( sampler_NormalMap, uv_normalMapDetail.uv, uv_normalMapDetail.dx, uv_normalMapDetail.dy));
                     normalMap               = lerp( normalMap, BlendNormals(normalMap, normalMapDetail), (normalDetailMask.g * _DetailNormalMapScale01));
                 }
-                float3x3 tangentTransform   = float3x3( i.tangent.xyz , i.bitTangent.xyz, i.wNormal);
-                float3 dirNormal            = normalize( mul( normalMap, tangentTransform ));
+				float3 dirTangent   = i.tangent.xyz;
+				float3 dirBitangent = i.biTangent.xyz;
+				float3x3 tangentTransform   = float3x3(dirTangent, dirBitangent, i.wNormal);
+				float3 dirNormal            = normalize( mul( normalMap, tangentTransform ));
+				dirTangent          = normalize(dirTangent);
+				dirBitangent        = normalize(dirBitangent);
                 // return float4(dirNormal*.5+.5,1);
 
 //// albedo texure
@@ -450,8 +452,8 @@
                 //// normal mc emis
 
                 //// aniso support. Observe [-1..1]
-                // float hdx_Norm_full = (dot(dirHalf,  i.tangent));
-                // float hdy_Norm_full = (dot(dirHalf,  i.bitTangent));
+                // float hdx_Norm_full = (dot(dirHalf,  dirTangent));
+                // float hdy_Norm_full = (dot(dirHalf,  dirBitangent));
 
 
 
