@@ -41,7 +41,7 @@ Shader "ACiiL/toon/ACLS_Toon_AlphaTransparent" {
         _Glossiness("Smoothness",Range(0,1))    = .3
         _HighColor_Tex("--Specular Setup Tex: (RGB):Tint, (A):Smoothness", 2D)  = "white" {}
         _highColTexSource("----Multiply with albedo", Range(0,1))   = 0
-        _SpecularMaskHSV("--Adjest (H)ue (S)sat (V)alue (I)ntensity",Float) = (0,0,0,1)
+        _SpecularMaskHSV("--Adjest (H)ue (S)sat (V)alue (I)ntensity",Vector) = (0,0,0,1)
         [HDR] _HighColor("Spec col 01", Color)  = (1,1,1,1)
         [Enum(Sharp,0,Soft,1,Unity,2)] _Is_SpecularToHighColor("Specular mode", Int )   = 0
         _TweakHighColorOnShadow("Spec shadow mask", Range(0, 1))    = 0.5
