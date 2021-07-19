@@ -1,10 +1,11 @@
-Origin and maintenance at: 
+### Origin and maintenance here at: ###  
 https://github.com/ACIIL/ACLS-Shader
 
 
-Wiki: Documentation, References and Citations at:
-https://github.com/ACIIL/ACLS-Shader/wiki
+### Wiki: Examples. Documentation, References and Citations at: ###   
+https://github.com/ACIIL/ACLS-Shader/wiki   
 
+### Introduction ###
 
 A Unity HLSL VR ready "NPR/PBR hybrid" avatar shader for VRCHAT and similar platforms. Built with game industry standard "toony" appearances and adaptive to vrchat render constraints and reactive to common incorrect user generated map lighting.
 
