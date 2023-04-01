@@ -11,6 +11,6 @@ A Unity HLSL VR ready "NPR/PBR hybrid" avatar shader for VRCHAT and similar plat
 
 This is a hobbyist and self practice project for my technical artist experiments and professional development. Source is free and citations and credits to works and ideas as i use them.
 
-Project FOR ACLS 1.0 (NOT +2.0) is MIT however if you find alternative sources not linking back or citing the primary github please let me know.
+Project for ACLS 1.0 (not +2.0) is MIT however if you find alternative sources not linking back or citing the primary github please let me know.
 
 License is posted in the LICENSE.md. License only applies to ACLS 1.0 (not +2.0) Code presented in this repository.
