@@ -1,3 +1,6 @@
+ACLS 1.0 (this) is deprecated. Find ACLS 2.0+ here https://aciil.booth.pm/items/1779615
+
+
 ### Origin and maintenance here at: ###  
 https://github.com/ACIIL/ACLS-Shader
 
